@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NeoPHP\Component\Kernel\Contract;
 
+use Composer\InstalledVersions;
 use ErrorException;
 use NeoPHP\Component\Config\Provider\ConfigProvider;
 use NeoPHP\Component\Container\ContainerManager;
@@ -20,6 +21,8 @@ use NeoPHP\Component\Http\Response\JsonResponse;
 use NeoPHP\Component\Http\Response\Response;
 use NeoPHP\Component\Kernel\Exception\KernelException;
 use NeoPHP\Component\Kernel\Provider\KernelProvider;
+use NeoPHP\Component\Logger\Contract\LoggerManagerInterface;
+use NeoPHP\Component\Logger\Provider\LoggerProvider;
 use NeoPHP\Component\Routing\Contract\RoutingInterface;
 use NeoPHP\Component\Routing\Provider\RoutingProvider;
 use NeoPHP\Component\View\Provider\ViewProvider;
@@ -33,7 +36,9 @@ use Throwable;
 
 abstract class AbstractKernel implements KernelInterface
 {
-    public const VERSION = '1.0.0-dev';
+    public const VERSION = 'dev';
+
+    public const PACKAGE = 'neophp/framework';
 
     protected string $rootPath;
 
@@ -166,6 +171,15 @@ abstract class AbstractKernel implements KernelInterface
         return $this->debug;
     }
 
+    public function getVersion(): string
+    {
+        if (class_exists(InstalledVersions::class) && InstalledVersions::isInstalled(static::PACKAGE)) {
+            return (string) InstalledVersions::getPrettyVersion(static::PACKAGE);
+        }
+
+        return static::VERSION;
+    }
+
     public function getParameters(): array
     {
         return [
@@ -175,7 +189,7 @@ abstract class AbstractKernel implements KernelInterface
             'kernel.templates_path' => $this->getTemplatesPath(),
             'kernel.environment' => $this->environment,
             'kernel.debug' => $this->debug,
-            'kernel.version' => static::VERSION,
+            'kernel.version' => $this->getVersion(),
         ];
     }
 
@@ -188,11 +202,35 @@ abstract class AbstractKernel implements KernelInterface
         $status = $manager->getStatusCode($exception);
         $headers = $manager->getHeaders($exception);
 
+        $this->logException($exception, $request, $status);
+
         if ($request->wantsJson() || $request->isJson()) {
             return new JsonResponse($manager->renderJson($exception), $status, $headers);
         }
 
         return new Response($manager->render($exception), $status, $headers);
+    }
+
+    protected function logException(Throwable $exception, Request $request, int $status): void
+    {
+        if ($status < 500 || $this->container === null || !$this->container->has(LoggerManagerInterface::class)) {
+            return;
+        }
+
+        try {
+            $logger = $this->container->get(LoggerManagerInterface::class);
+
+            if ($logger->hasChannel('framework')) {
+                $logger->channel('framework')->critical('Uncaught {class}: {message} ({method} {path})', [
+                    'class' => $exception::class,
+                    'message' => $exception->getMessage(),
+                    'method' => $request->getMethod(),
+                    'path' => $request->getPath(),
+                    'exception' => $exception,
+                ]);
+            }
+        } catch (Throwable) {
+        }
     }
 
     protected function providers(): iterable
@@ -209,6 +247,7 @@ abstract class AbstractKernel implements KernelInterface
             YamlProvider::class,
             DotenvProvider::class,
             ConfigProvider::class,
+            LoggerProvider::class,
             HttpProvider::class,
             RoutingProvider::class,
             ViewProvider::class,
