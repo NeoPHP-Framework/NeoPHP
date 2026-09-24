@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace NeoPHP\Component\Container\Contract;
 
 use Closure;
+use NeoPHP\Component\Container\Attribute\Autowire;
+use NeoPHP\Component\Container\Attribute\Inject;
 use NeoPHP\Component\Container\Exception\ContainerException;
 use NeoPHP\Component\Container\Exception\NotFoundException;
 use ReflectionClass;
@@ -14,9 +16,14 @@ use ReflectionFunctionAbstract;
 use ReflectionMethod;
 use ReflectionNamedType;
 use ReflectionParameter;
+use ReflectionProperty;
 
 abstract class AbstractContainer implements ContainerInterface
 {
+    public const CONFIG_ID = 'config';
+
+    protected bool $autoShare = true;
+
     protected array $bindings = [];
 
     protected array $instances = [];
@@ -90,6 +97,34 @@ abstract class AbstractContainer implements ContainerInterface
         return $this->resolve($id, $parameters, true);
     }
 
+    public function instantiate(string $class, array $parameters = []): object
+    {
+        return $this->build($class, $parameters, $class);
+    }
+
+    public function inject(object $object): object
+    {
+        $class = new ReflectionClass($object);
+
+        do {
+            foreach ($class->getProperties() as $property) {
+                if ($property->getDeclaringClass()->getName() !== $class->getName()) {
+                    continue;
+                }
+
+                $attributes = $property->getAttributes(Inject::class);
+
+                if ($attributes !== []) {
+                    $property->setValue($object, $this->injectedValue($attributes[0]->newInstance(), $property));
+                }
+            }
+
+            $class = $class->getParentClass();
+        } while ($class !== false);
+
+        return $object;
+    }
+
     public function call(callable|array|string $callable, array $parameters = []): mixed
     {
         if (is_string($callable) && str_contains($callable, '::')) {
@@ -136,8 +171,12 @@ abstract class AbstractContainer implements ContainerInterface
     {
         $arguments = [];
 
-        foreach ($function->getParameters() as $parameter) {
+        foreach ($function->getParameters() as $position => $parameter) {
             $name = $parameter->getName();
+
+            if (!array_key_exists($name, $parameters) && array_key_exists($position, $parameters)) {
+                $parameters[$name] = $parameters[$position];
+            }
 
             if (array_key_exists($name, $parameters)) {
                 if ($parameter->isVariadic() && is_array($parameters[$name])) {
@@ -161,6 +200,12 @@ abstract class AbstractContainer implements ContainerInterface
 
     protected function resolveParameter(ReflectionParameter $parameter, array $parameters, ReflectionFunctionAbstract $function): mixed
     {
+        $autowire = $parameter->getAttributes(Autowire::class);
+
+        if ($autowire !== []) {
+            return $this->autowiredValue($autowire[0]->newInstance(), $parameter->allowsNull(), '$' . $parameter->getName());
+        }
+
         foreach ($this->classTypesOf($parameter) as $class) {
             if (array_key_exists($class, $parameters)) {
                 return $parameters[$class];
@@ -212,8 +257,9 @@ abstract class AbstractContainer implements ContainerInterface
         }
 
         $object = $this->build($binding['concrete'] ?? $id, $parameters, $id);
+        $shared = $binding !== null ? $binding['shared'] : $this->autoShared($id);
 
-        if (!$forceNew && ($binding['shared'] ?? false)) {
+        if (!$forceNew && $shared) {
             $this->instances[$id] = $object;
         }
 
@@ -257,14 +303,112 @@ abstract class AbstractContainer implements ContainerInterface
         try {
             $constructor = $reflection->getConstructor();
 
-            if ($constructor === null) {
-                return new $concrete();
-            }
+            $object = $constructor === null ? new $concrete() : $reflection->newInstanceArgs($this->resolveArguments($constructor, $parameters));
 
-            return $reflection->newInstanceArgs($this->resolveArguments($constructor, $parameters));
+            return $this->inject($object);
         } finally {
             unset($this->building[$concrete]);
         }
+    }
+
+    protected function autoShared(string $class): bool
+    {
+        if (!$this->autoShare || !class_exists($class)) {
+            return false;
+        }
+
+        $attributes = (new ReflectionClass($class))->getAttributes(Autowire::class);
+
+        if ($attributes !== []) {
+            $shared = $attributes[0]->newInstance()->shared;
+
+            if ($shared !== null) {
+                return $shared;
+            }
+        }
+
+        return true;
+    }
+
+    protected function injectedValue(Inject $inject, ReflectionProperty $property): mixed
+    {
+        $label = $property->getDeclaringClass()->getName() . '::$' . $property->getName();
+
+        if ($inject->service !== null || $inject->config !== null || $inject->env !== null || $inject->param !== null || $inject->value !== null) {
+            return $this->autowiredValue(new Autowire($inject->value, $inject->service, $inject->config, $inject->env, $inject->param), $property->getType()?->allowsNull() ?? true, $label);
+        }
+
+        $type = $property->getType();
+
+        if ($type instanceof ReflectionNamedType && !$type->isBuiltin()) {
+            if ($this->has($type->getName())) {
+                return $this->get($type->getName());
+            }
+
+            if ($type->allowsNull()) {
+                return null;
+            }
+        }
+
+        throw new ContainerException(sprintf('Unable to inject "%s": add a class type or a service to #[Inject].', $label));
+    }
+
+    protected function autowiredValue(Autowire $autowire, bool $nullable, string $label): mixed
+    {
+        if ($autowire->service !== null) {
+            if (!$this->has($autowire->service) && $nullable) {
+                return null;
+            }
+
+            return $this->get($autowire->service);
+        }
+
+        if ($autowire->param !== null) {
+            if (!$this->bound($autowire->param)) {
+                if ($nullable) {
+                    return null;
+                }
+
+                throw new ContainerException(sprintf('The parameter "%s" required by "%s" is not defined.', $autowire->param, $label));
+            }
+
+            return $this->get($autowire->param);
+        }
+
+        if ($autowire->config !== null) {
+            $missing = new \stdClass();
+            $value = $this->bound(self::CONFIG_ID) ? $this->get(self::CONFIG_ID)->get($autowire->config, $missing) : $missing;
+
+            if ($value === $missing) {
+                if ($nullable) {
+                    return null;
+                }
+
+                throw new ContainerException(sprintf('The configuration key "%s" required by "%s" is not defined.', $autowire->config, $label));
+            }
+
+            return $value;
+        }
+
+        if ($autowire->env !== null) {
+            $value = $_SERVER[$autowire->env] ?? $_ENV[$autowire->env] ?? getenv($autowire->env);
+
+            if ($value === false || $value === null) {
+                if ($nullable) {
+                    return null;
+                }
+
+                throw new ContainerException(sprintf('The environment variable "%s" required by "%s" is not defined.', $autowire->env, $label));
+            }
+
+            return $value;
+        }
+
+        if (is_string($autowire->value) && str_contains($autowire->value, '%') && $this->bound(self::CONFIG_ID)) {
+            return $this->get(self::CONFIG_ID)->resolve($autowire->value);
+        }
+
+        return $autowire->value;
     }
 
     protected function resolveAlias(string $id): string

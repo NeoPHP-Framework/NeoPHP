@@ -12,6 +12,7 @@ NeoPHP v1.x is the base of the framework. It has no dependency other than PHP 8.
 - an HTTP layer (`Request`, `Response`, `JsonResponse`, `RedirectResponse`)
 - sessions, cookies (optionally signed) and flash messages, configured in `config/framework/app.yaml`
 - middlewares (PSR-15 style), global or attached to routes and controllers
+- a dependency injection container with autowiring, `#[Autowire]`, `#[Inject]` and `config/services.yaml`
 - a configuration loaded from `.env` files and `config/**/*.yaml`, with placeholders (`%kernel.root_path%`, `%env(APP_NAME)%`...)
 - a console (`php bin/neo`) that generates the project files
 
@@ -62,6 +63,7 @@ php bin/neo serve
 .gitignore
 assets/css/app.css
 config/routes.yaml
+config/services.yaml
 config/framework/app.yaml
 config/framework/asset.yaml
 config/framework/logger.yaml
@@ -93,6 +95,7 @@ var/sessions/
 | `php bin/neo serve [--host=127.0.0.1] [--port=8000]` | starts the PHP development server |
 | `php bin/neo route:list` | lists the routes |
 | `php bin/neo middleware:list` | lists the global middlewares, the aliases and the groups |
+| `php bin/neo service:list [filter]` | lists the services, the aliases and the interfaces bound automatically |
 | `php bin/neo cache:clear` | clears `var/cache/` (routes, Twig templates...) |
 | `php bin/neo asset:reload [--minify]` | compiles `assets/` into `public/builds/` and rebuilds the manifest |
 
@@ -694,6 +697,118 @@ Order of execution:
 
 A middleware is never run twice: a middleware already global is ignored on the route. An unknown alias throws a `MiddlewareException`.
 
+## Services
+
+Every class can be injected: the container reads the constructor and gives each parameter the service of its type (autowiring). Controllers, middlewares, commands and view helpers are built this way.
+
+```php
+class NewsletterController extends AbstractController
+{
+    public function __construct(protected MailerInterface $mailer)
+    {
+    }
+}
+```
+
+A service is shared: the same instance is given everywhere during the request. `#[Autowire(shared: false)]` on the class, or `shared: false` in `services.yaml`, creates a new instance each time.
+
+### #[Autowire]
+
+On a parameter, `#[Autowire]` says what to inject when the type is not enough:
+
+```php
+use NeoPHP\Component\Container\Attribute\Autowire;
+
+class SmtpMailer implements MailerInterface
+{
+    public function __construct(
+        #[Autowire(service: 'mailer.transport')] protected TransportInterface $transport,
+        #[Autowire(config: 'framework.app.name')] protected string $appName,
+        #[Autowire(env: 'MAILER_DSN')] protected string $dsn,
+        #[Autowire(param: 'kernel.debug')] protected bool $debug,
+        #[Autowire('%kernel.root_path%/var/mails')] protected string $spool,
+    ) {
+    }
+}
+```
+
+| Argument | Injected value |
+|---|---|
+| `service` | the service with this id |
+| `config` | a configuration value (`framework.app.name`) |
+| `env` | an environment variable |
+| `param` | a kernel parameter (`kernel.debug`, `kernel.root_path`...) |
+| `value` (first argument) | a value; placeholders (`%env(...)%`, `%kernel.*%`, `%config.key%`) are resolved |
+| `shared` | on the class only: `false` creates a new instance each time |
+
+A missing service, configuration key or environment variable throws a `ContainerException`, unless the parameter is nullable (it then receives `null`).
+
+### #[Inject]
+
+On a property, `#[Inject]` injects the value after the constructor. Without argument, the type of the property is used. It accepts the same arguments as `#[Autowire]` (`service`, `config`, `env`, `param`, `value`).
+
+```php
+use NeoPHP\Component\Container\Attribute\Inject;
+
+class ReportService
+{
+    #[Inject]
+    protected LoggerInterface $logger;
+
+    #[Inject(config: 'framework.app.name')]
+    protected string $appName;
+}
+```
+
+### config/services.yaml
+
+```yaml
+services:
+  _defaults:
+    shared: true
+
+  App\:
+    resource: ../src/
+    exclude:
+      - ../src/Kernel.php
+
+  App\Service\SmtpMailer:
+    arguments:
+      $host: '%env(MAIL_HOST)%'
+      $logger: '@NeoPHP\Component\Logger\Contract\LoggerInterface'
+    calls:
+      - [setFrom, ['noreply@example.com']]
+
+  mailer: '@App\Service\SmtpMailer'
+
+  App\Service\NotifierInterface: '@App\Service\SmsNotifier'
+
+  app.api_client:
+    class: App\Service\ApiClient
+    factory: ['@App\Service\ApiClientFactory', 'create']
+    arguments:
+      $baseUrl: 'https://api.example.com'
+    shared: false
+```
+
+| Entry | Description |
+|---|---|
+| `_defaults.shared` | default value of `shared` for the file |
+| `Namespace\: { resource, exclude, shared }` | registers every class of a directory (`exclude`: files, directories or `*` patterns, relative to the file) |
+| `id: ~` | registers a class with its default values |
+| `id: '@other'` / `id: { alias: other }` | alias of another service |
+| `class` | class of the service (default: the id) |
+| `arguments` | arguments by name (`$host`) or by position; the others are autowired |
+| `calls` | methods called after the construction: `[method, [arguments]]` |
+| `factory` | `['@service', 'method']`, `['Class', 'method']` or `'Class::method'` |
+| `shared` | `false` creates a new instance each time |
+
+In arguments, `@id` is a service, `@?id` a service or `null` when it does not exist, `@@text` the string `@text`, and `%...%` the placeholders of the configuration (resolved when the service is built).
+
+When one class of the file implements an interface, the interface is bound to this class automatically: a parameter typed `MailerInterface` receives `SmtpMailer`. When several classes implement it, resolving the interface throws a `ServiceException` that asks for an alias. An interface already bound by the framework is never replaced automatically.
+
+`services.yaml` is compiled into `var/cache/service/services.{env}.php`, rebuilt in debug when the file or a class of a `resource` changes. In production, run `php bin/neo cache:clear` on every deployment.
+
 ## Session, cookies and flash messages
 
 They are configured in `config/framework/app.yaml`:
@@ -861,13 +976,12 @@ DATABASE_URL="mysql://${DB_USER}@localhost/app"
 
 ### YAML configuration
 
-Every `*.yaml` file of `config/` is loaded, except `routes.yaml` and `config/routes/`. The key is the file path:
+Every `*.yaml` file of `config/` is loaded, except `routes.yaml`, `config/routes/` and `services.yaml`. The key is the file path:
 
 | File | Key |
 |---|---|
 | `config/framework/app.yaml` | `framework.app` |
 | `config/packages/mail.yaml` | `packages.mail` |
-| `config/services.yaml` | `services` |
 
 ```php
 use NeoPHP\Component\Config\Contract\ConfigInterface;
@@ -992,7 +1106,7 @@ src/
 ├── components/
 │   ├── Asset          asset compilation, hashed builds, manifest
 │   ├── Config         YAML configuration and placeholders
-│   ├── Container      dependency injection container, autowiring, providers
+│   ├── Container      dependency injection container, autowiring, #[Autowire], #[Inject], providers
 │   ├── Controller     controller resolution and AbstractController (made of traits)
 │   ├── Cookie         cookies read from the request, queued, signed
 │   ├── Exception      FrameworkException and error pages
@@ -1002,6 +1116,7 @@ src/
 │   ├── Logger         PSR-3 logger, channels, rotation, archives
 │   ├── Middleware     middlewares, pipeline, aliases and groups
 │   ├── Routing        YAML and attribute routes, cache, matching, URL generation
+│   ├── Service        config/services.yaml, resources, aliases, interfaces
 │   ├── Session        native PHP session, started on demand
 │   └── View           PHP and Twig templates, view helpers discovery
 ├── packages/
@@ -1038,3 +1153,4 @@ Feature/Helper/Console/FeatureXxxCommand.php    (optional)
 - Routing: `#[Route]` attribute, controllers imported with `type: attribute` in `routes.yaml`, routes cache, `cache:clear` command, duplicate route names detected (v1.5.0).
 - Session, cookies (signed with `APP_SECRET`) and flash messages configured in `app.yaml`, with controller traits and view helpers (v1.6.0).
 - Middlewares: PSR-15 style interfaces, global middlewares (`middleware.yaml`, `#[AsMiddleware]`), aliases and groups, route middlewares (`#[Middleware]`, `#[Route(middlewares)]`, `routes.yaml`), `middleware:list` command (v1.7.0).
+- Services: `#[Autowire]` on parameters, `#[Inject]` on properties, `config/services.yaml` (resources, arguments, calls, factories, aliases), shared services by default, interfaces bound to their single implementation, `service:list` command (v1.8.0).
