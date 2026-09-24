@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace NeoPHP\Component\Kernel\Contract;
 
 use ErrorException;
+use NeoPHP\Component\Config\Provider\ConfigProvider;
 use NeoPHP\Component\Container\ContainerManager;
 use NeoPHP\Component\Container\Contract\ContainerInterface;
 use NeoPHP\Component\Container\Contract\ProviderInterface;
@@ -22,6 +23,8 @@ use NeoPHP\Component\Kernel\Provider\KernelProvider;
 use NeoPHP\Component\Routing\Contract\RoutingInterface;
 use NeoPHP\Component\Routing\Provider\RoutingProvider;
 use NeoPHP\Component\View\Provider\ViewProvider;
+use NeoPHP\Package\Dotenv\DotenvManager;
+use NeoPHP\Package\Dotenv\Provider\DotenvProvider;
 use NeoPHP\Package\Yaml\Provider\YamlProvider;
 use NeoPHP\Process\Console\Provider\ConsoleProvider;
 use NeoPHP\Process\Installer\Provider\InstallerProvider;
@@ -32,7 +35,7 @@ abstract class AbstractKernel implements KernelInterface
 {
     public const VERSION = '1.0.0-dev';
 
-    protected string $projectDir;
+    protected string $rootPath;
 
     protected string $environment;
 
@@ -42,9 +45,16 @@ abstract class AbstractKernel implements KernelInterface
 
     protected bool $booted = false;
 
-    public function __construct(?string $environment = null, ?bool $debug = null, ?string $projectDir = null)
+    public function __construct(?string $environment = null, ?bool $debug = null, ?string $rootPath = null)
     {
-        $this->projectDir = rtrim($projectDir ?? $this->detectProjectDir(), '/\\');
+        $this->rootPath = rtrim($rootPath ?? $this->detectRootPath(), '/\\');
+
+        if ($environment !== null) {
+            $_SERVER['APP_ENV'] = $_ENV['APP_ENV'] = $environment;
+        }
+
+        $this->loadEnvironment();
+
         $this->environment = $environment ?? (string) ($this->env('APP_ENV') ?? 'dev');
 
         $envDebug = $this->env('APP_DEBUG');
@@ -62,6 +72,7 @@ abstract class AbstractKernel implements KernelInterface
         $container = $this->createContainer();
         $container->instance(KernelInterface::class, $this);
         $container->instance(static::class, $this);
+        $container->instance(ConfigProvider::PARAMETERS_ID, $this->getParameters());
 
         foreach ($this->getParameters() as $name => $value) {
             $container->instance($name, $value);
@@ -125,19 +136,24 @@ abstract class AbstractKernel implements KernelInterface
         return $this->container;
     }
 
-    public function getProjectDir(): string
+    public function getRootPath(): string
     {
-        return $this->projectDir;
+        return $this->rootPath;
     }
 
-    public function getConfigDir(): string
+    public function getConfigPath(): string
     {
-        return $this->projectDir . DIRECTORY_SEPARATOR . 'config';
+        return $this->rootPath . DIRECTORY_SEPARATOR . 'config';
     }
 
-    public function getTemplatesDir(): string
+    public function getPublicPath(): string
     {
-        return $this->projectDir . DIRECTORY_SEPARATOR . 'templates';
+        return $this->rootPath . DIRECTORY_SEPARATOR . 'public';
+    }
+
+    public function getTemplatesPath(): string
+    {
+        return $this->rootPath . DIRECTORY_SEPARATOR . 'templates';
     }
 
     public function getEnvironment(): string
@@ -153,9 +169,10 @@ abstract class AbstractKernel implements KernelInterface
     public function getParameters(): array
     {
         return [
-            'kernel.project_dir' => $this->projectDir,
-            'kernel.config_dir' => $this->getConfigDir(),
-            'kernel.templates_dir' => $this->getTemplatesDir(),
+            'kernel.root_path' => $this->rootPath,
+            'kernel.config_path' => $this->getConfigPath(),
+            'kernel.public_path' => $this->getPublicPath(),
+            'kernel.templates_path' => $this->getTemplatesPath(),
             'kernel.environment' => $this->environment,
             'kernel.debug' => $this->debug,
             'kernel.version' => static::VERSION,
@@ -190,6 +207,8 @@ abstract class AbstractKernel implements KernelInterface
             KernelProvider::class,
             ExceptionProvider::class,
             YamlProvider::class,
+            DotenvProvider::class,
+            ConfigProvider::class,
             HttpProvider::class,
             RoutingProvider::class,
             ViewProvider::class,
@@ -215,6 +234,11 @@ abstract class AbstractKernel implements KernelInterface
         });
     }
 
+    protected function loadEnvironment(): void
+    {
+        (new DotenvManager())->loadEnv($this->rootPath);
+    }
+
     protected function env(string $name): ?string
     {
         $value = $_SERVER[$name] ?? $_ENV[$name] ?? getenv($name);
@@ -222,7 +246,7 @@ abstract class AbstractKernel implements KernelInterface
         return $value === false || $value === null ? null : (string) $value;
     }
 
-    protected function detectProjectDir(): string
+    protected function detectRootPath(): string
     {
         $file = (new ReflectionObject($this))->getFileName();
         $directory = $file !== false ? dirname($file) : (string) getcwd();

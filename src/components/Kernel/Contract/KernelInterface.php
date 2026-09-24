@@ -18,11 +18,13 @@ interface KernelInterface
 
     public function getContainer(): ContainerInterface;
 
-    public function getProjectDir(): string;
+    public function getRootPath(): string;
 
-    public function getConfigDir(): string;
+    public function getConfigPath(): string;
 
-    public function getTemplatesDir(): string;
+    public function getPublicPath(): string;
+
+    public function getTemplatesPath(): string;
 
     public function getEnvironment(): string;
 
