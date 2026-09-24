@@ -6,6 +6,7 @@ namespace NeoPHP\Component\Kernel\Contract;
 
 use Composer\InstalledVersions;
 use ErrorException;
+use NeoPHP\Component\Asset\Provider\AssetProvider;
 use NeoPHP\Component\Config\Provider\ConfigProvider;
 use NeoPHP\Component\Container\ContainerManager;
 use NeoPHP\Component\Container\Contract\ContainerInterface;
@@ -250,6 +251,7 @@ abstract class AbstractKernel implements KernelInterface
             LoggerProvider::class,
             HttpProvider::class,
             RoutingProvider::class,
+            AssetProvider::class,
             ViewProvider::class,
             ControllerProvider::class,
             InstallerProvider::class,

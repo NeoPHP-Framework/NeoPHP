@@ -8,6 +8,7 @@ NeoPHP v1.x is the base of the framework. It has no dependency other than PHP 8.
 - a YAML parser
 - views stored in `templates/`: PHP templates, and Twig templates when `twig/twig` is installed
 - view helpers shared by every template engine, shipped by each feature in `Helper/View/`
+- assets compiled from `assets/` to `public/builds/` with hashed file names and a manifest
 - an HTTP layer (`Request`, `Response`, `JsonResponse`, `RedirectResponse`)
 - a configuration loaded from `.env` files and `config/**/*.yaml`, with placeholders (`%kernel.root_path%`, `%env(APP_NAME)%`...)
 - a console (`php bin/neo`) that generates the project files
@@ -57,9 +58,10 @@ php bin/neo serve
 ```
 .env
 .gitignore
-assets/
+assets/css/app.css
 config/routes.yaml
 config/framework/app.yaml
+config/framework/asset.yaml
 config/framework/logger.yaml
 config/framework/view.yaml
 config/packages/
@@ -84,6 +86,9 @@ var/log/
 | `php bin/neo install [--force]` | generates the project files |
 | `php bin/neo serve [--host=127.0.0.1] [--port=8000]` | starts the PHP development server |
 | `php bin/neo route:list` | lists the routes |
+| `php bin/neo asset:reload [--minify]` | compiles `assets/` into `public/builds/` and rebuilds the manifest |
+
+Each feature can ship its own commands in `Feature/Helper/Console/`: they are discovered automatically, in the framework and in the application (`src/**/Helper/Console/`). A command extends `NeoPHP\Process\Console\Contract\AbstractCommand`.
 
 ## Routes
 
@@ -224,6 +229,7 @@ Inside a PHP template, `$this` gives access to:
 | `$this->e($value)` | escapes a value for HTML |
 | `$this->filter('name', $value, ...)` | applies a view filter |
 | `$this->path('route', [...])` | generates the URL of a route |
+| `$this->asset('css/app.css')` | URL of a compiled asset (see [Assets](#assets)) |
 | `$this->config('framework.app.name')` | reads a configuration value |
 
 `templates/base.php`
@@ -256,7 +262,10 @@ Inside a PHP template, `$this` gives access to:
 ```twig
 <!DOCTYPE html>
 <html>
-<head><title>{% block title %}{{ config('framework.app.name') }}{% endblock %}</title></head>
+<head>
+    <title>{% block title %}{{ config('framework.app.name') }}{% endblock %}</title>
+    <link rel="stylesheet" href="{{ asset('css/app.css') }}">
+</head>
 <body>
 {% block body %}{% endblock %}
 </body>
@@ -293,6 +302,7 @@ Each feature ships its own helpers in `Feature/Helper/View/FeatureViewHelper.php
 
 | Helper | Name |
 |---|---|
+| `Asset/Helper/View/AssetViewHelper.php` | `asset()` |
 | `Config/Helper/View/ConfigViewHelper.php` | `config()` |
 | `Routing/Helper/View/PathViewHelper.php` | `path()` |
 
@@ -361,6 +371,68 @@ twig:
 | `helpers` | additional helper classes |
 | `twig.enabled` | disables Twig even when it is installed |
 | `twig.*` | Twig options: `cache`, `debug`, `auto_reload`, `strict_variables`, `autoescape`, `charset` |
+
+## Assets
+
+Assets are stored in `assets/` and compiled into `public/builds/`, with the same structure. A hash of the content is added to every file name: `{filename}-{hash}.{extension}`.
+
+```
+assets/css/app.css        ->  public/builds/css/app-3f2a9c1b.css
+assets/img/logo.png       ->  public/builds/img/logo-d07ec8c2.png
+assets/js/app.js          ->  public/builds/js/app-8801909f.js
+```
+
+`public/builds/manifest.json` maps each asset to its compiled URL:
+
+```json
+{
+    "css/app.css": "/builds/css/app-3f2a9c1b.css",
+    "img/logo.png": "/builds/img/logo-d07ec8c2.png"
+}
+```
+
+In a template, `asset()` returns the compiled URL:
+
+```twig
+<link rel="stylesheet" href="{{ asset('css/app.css') }}">
+<img src="{{ asset('img/logo.png') }}" alt="">
+```
+
+```php
+<link rel="stylesheet" href="<?= $this->e($this->asset('css/app.css')) ?>">
+```
+
+| Mode | Behavior of `asset()` |
+|---|---|
+| debug (`auto_compile: true`) | compiles the asset again when its content changed, updates the manifest and removes the previous build |
+| production (`auto_compile: false`) | reads the manifest; an asset missing from the manifest is compiled once |
+
+`php bin/neo asset:reload` empties `public/builds/`, compiles every file of `assets/` and rebuilds the manifest. Run it on every deployment. `--minify` also minifies CSS (comments and whitespace) and JavaScript (comments and indentation, line breaks are kept).
+
+In CSS files, `url(...)` and `@import` pointing to another file of `assets/` are rewritten to the compiled URL (`url('../img/logo.png')` becomes `url('/builds/img/logo-d07ec8c2.png')`). External URLs, absolute paths and files outside `assets/` are kept as is. Absolute URLs given to `asset()` (`https://...`, `//...`) are returned unchanged.
+
+`config/framework/asset.yaml`
+
+```yaml
+source_path: '%kernel.root_path%/assets'
+build_path: '%kernel.public_path%/builds'
+public_url: /builds
+auto_compile: '%kernel.debug%'
+
+hash:
+  algorithm: xxh128
+  length: 8
+```
+
+| Option | Description |
+|---|---|
+| `source_path` | directory of the assets |
+| `build_path` | directory of the compiled files and of `manifest.json` |
+| `public_url` | URL prefix of the compiled files (a CDN URL can be used) |
+| `auto_compile` | compiles the changed assets on each request |
+| `hash.algorithm` / `hash.length` | hash function (any `hash_algos()` value) and number of characters kept |
+
+In PHP code, `NeoPHP\Component\Asset\Contract\AssetInterface` provides `url()`, `compile()`, `reload()` and `clear()`. A custom compiler implements `CompilerInterface` and is registered with `addCompiler()`.
 
 ## YAML
 
@@ -549,6 +621,7 @@ Rotated files are named after the period (`app-2026-09-23.log`) or the rotation 
 ```
 src/
 ├── components/
+│   ├── Asset          asset compilation, hashed builds, manifest
 │   ├── Config         YAML configuration and placeholders
 │   ├── Container      dependency injection container, autowiring, providers
 │   ├── Controller     controller resolution and AbstractController
@@ -562,7 +635,7 @@ src/
 │   ├── Dotenv         .env files loader
 │   └── Yaml           YAML parser
 └── process/
-    ├── Console        neo command line (install, serve, route:list)
+    ├── Console        neo command line and commands discovery
     └── Installer      project skeleton generation
 ```
 
@@ -573,7 +646,8 @@ Feature/FeatureManager.php
 Feature/Provider/FeatureProvider.php
 Feature/Contract/FeatureInterface.php
 Feature/Contract/AbstractFeature.php
-Feature/Helper/View/FeatureViewHelper.php   (optional)
+Feature/Helper/View/FeatureViewHelper.php       (optional)
+Feature/Helper/Console/FeatureXxxCommand.php    (optional)
 ```
 
 ## Changes
@@ -585,3 +659,4 @@ Feature/Helper/View/FeatureViewHelper.php   (optional)
 - Configuration: `.env` files, `config/**/*.yaml`, placeholders `%kernel.*%`, `%env(...)%` and `%config.key%`.
 - Logger: PSR-3 compatible logger, channels, rotation by size or period, zip/gz archives (v1.1.0).
 - Views: optional Twig engine, engine-agnostic view helpers discovered in each feature `Helper/View/` directory, `config/framework/view.yaml`; the `asset()` helper is removed (v1.2.0).
+- Assets: `assets/` compiled into `public/builds/` with hashed names, `manifest.json`, `asset()` helper, `asset:reload [--minify]` command, commands discovered in `Helper/Console/` (v1.3.0).

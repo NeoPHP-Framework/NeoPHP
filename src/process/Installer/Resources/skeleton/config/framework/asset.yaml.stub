@@ -1,0 +1,8 @@
+source_path: '%kernel.root_path%/assets'
+build_path: '%kernel.public_path%/builds'
+public_url: /builds
+auto_compile: '%kernel.debug%'
+
+hash:
+    algorithm: xxh128
+    length: 8
