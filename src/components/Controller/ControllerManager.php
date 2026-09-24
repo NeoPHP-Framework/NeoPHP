@@ -5,10 +5,15 @@ declare(strict_types=1);
 namespace NeoPHP\Component\Controller;
 
 use Closure;
+use JsonSerializable;
 use NeoPHP\Component\Container\Contract\ContainerInterface;
 use NeoPHP\Component\Controller\Contract\ControllerInterface;
 use NeoPHP\Component\Controller\Contract\ControllerResolverInterface;
 use NeoPHP\Component\Controller\Exception\ControllerException;
+use NeoPHP\Component\Http\Contract\HttpInterface;
+use NeoPHP\Component\Http\Exception\NotFoundHttpException;
+use NeoPHP\Component\Http\Request\Request;
+use NeoPHP\Component\Http\Response\Response;
 use ReflectionFunction;
 use ReflectionFunctionAbstract;
 use ReflectionMethod;
@@ -18,7 +23,7 @@ use Stringable;
 
 class ControllerManager implements ControllerResolverInterface
 {
-    public function __construct(protected ContainerInterface $container)
+    public function __construct(protected ContainerInterface $container, protected HttpInterface $http)
     {
     }
 
@@ -58,41 +63,54 @@ class ControllerManager implements ControllerResolverInterface
         ]);
     }
 
-    public function resolveArguments(callable $controller, array $routeParameters = []): array
+    public function resolveArguments(callable $controller, Request $request, array $routeParameters = []): array
     {
         $reflection = $this->reflect($controller);
         $arguments = [];
 
         foreach ($reflection->getParameters() as $parameter) {
-            $arguments[] = $this->resolveArgument($parameter, $routeParameters, $reflection);
+            $arguments[] = $this->resolveArgument($parameter, $request, $routeParameters, $reflection);
         }
 
         return $arguments;
     }
 
-    public function dispatch(mixed $controller, array $routeParameters = []): string
+    public function dispatch(mixed $controller, Request $request, array $routeParameters = []): Response
     {
         $callable = $this->resolve($controller);
-        $result = $callable(...$this->resolveArguments($callable, $routeParameters));
+        $result = $callable(...$this->resolveArguments($callable, $request, $routeParameters));
 
-        if ($result === null) {
-            return '';
-        }
-
-        if (is_string($result) || $result instanceof Stringable) {
-            return (string) $result;
-        }
-
-        throw new ControllerException('A controller must return a string or null ({type} returned).', 0, null, ['type' => get_debug_type($result)]);
+        return $this->toResponse($result);
     }
 
-    protected function resolveArgument(ReflectionParameter $parameter, array $routeParameters, ReflectionFunctionAbstract $function): mixed
+    protected function toResponse(mixed $result): Response
+    {
+        return match (true) {
+            $result instanceof Response => $result,
+            $result === null => $this->http->createResponse('', 204),
+            is_string($result), $result instanceof Stringable => $this->http->createResponse((string) $result),
+            is_array($result), $result instanceof JsonSerializable => $this->http->json($result),
+            default => throw new ControllerException('A controller must return a Response, a string, an array or null ({type} returned).', 0, null, [
+                'type' => get_debug_type($result),
+            ]),
+        };
+    }
+
+    protected function resolveArgument(ReflectionParameter $parameter, Request $request, array $routeParameters, ReflectionFunctionAbstract $function): mixed
     {
         $name = $parameter->getName();
         $type = $parameter->getType();
 
+        if ($type instanceof ReflectionNamedType && !$type->isBuiltin() && is_a($request, $type->getName())) {
+            return $request;
+        }
+
         if (array_key_exists($name, $routeParameters)) {
             return $this->cast($routeParameters[$name], $parameter);
+        }
+
+        if ($request->attributes->has($name)) {
+            return $request->attributes->get($name);
         }
 
         if ($type instanceof ReflectionNamedType && !$type->isBuiltin() && $this->container->has($type->getName())) {
@@ -107,7 +125,7 @@ class ControllerManager implements ControllerResolverInterface
             return null;
         }
 
-        throw new ControllerException('Unable to resolve the argument "${argument}" of "{controller}": it is neither a route parameter nor a service.', 0, null, [
+        throw new ControllerException('Unable to resolve the argument "${argument}" of "{controller}": it is neither the request, a route parameter, a request attribute nor a service.', 0, null, [
             'argument' => $name,
             'controller' => $this->describe($function),
         ]);
@@ -130,10 +148,10 @@ class ControllerManager implements ControllerResolverInterface
         };
 
         if ($cast === null) {
-            throw (new ControllerException('The route parameter "{parameter}" must be of type {type}.', 0, null, [
+            throw new NotFoundHttpException('The route parameter "{parameter}" must be of type {type}.', [
                 'parameter' => $parameter->getName(),
                 'type' => $type->getName(),
-            ]))->setStatusCode(404);
+            ]);
         }
 
         return $cast;
