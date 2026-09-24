@@ -4,7 +4,7 @@
 
 NeoPHP v1.x is the base of the framework. It has no dependency other than PHP 8.2. It provides:
 
-- routes defined in `config/routes.yaml`
+- routes defined in `config/routes.yaml` or with the `#[Route]` attribute, cached in `var/cache/`
 - a YAML parser
 - views stored in `templates/`: PHP templates, and Twig templates when `twig/twig` is installed
 - view helpers shared by every template engine, shipped by each feature in `Helper/View/`
@@ -22,13 +22,7 @@ Until the framework is published on Packagist, require it through a Composer pat
     "name": "neophp/test",
     "type": "project",
     "repositories": [
-        { 
-            "type": "path", 
-            "url": "../neophp", 
-            "options": { 
-                "symlink": true
-            }
-        }
+        { "type": "path", "url": "../neophp", "options": { "symlink": true } }
     ],
     "require": {
         "php": ">=8.2",
@@ -92,34 +86,99 @@ var/log/
 | `php bin/neo install [--force]` | generates the project files |
 | `php bin/neo serve [--host=127.0.0.1] [--port=8000]` | starts the PHP development server |
 | `php bin/neo route:list` | lists the routes |
+| `php bin/neo cache:clear` | clears `var/cache/` (routes, Twig templates...) |
 | `php bin/neo asset:reload [--minify]` | compiles `assets/` into `public/builds/` and rebuilds the manifest |
 
 Each feature can ship its own commands in `Feature/Helper/Console/`: they are discovered automatically, in the framework and in the application (`src/**/Helper/Console/`). A command extends `NeoPHP\Process\Console\Contract\AbstractCommand`.
 
 ## Routes
 
+Routes are declared in `config/routes.yaml`, with the `#[Route]` attribute on the controllers, or both.
+
+### Attributes
+
+`config/routes.yaml` declares where the controllers are:
+
+```yaml
+controllers:
+  resource: ../src/Controller/
+  type: attribute
+```
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Controller;
+
+use NeoPHP\Component\Controller\Contract\AbstractController;
+use NeoPHP\Component\Http\Response\Response;
+use NeoPHP\Component\Routing\Attribute\Route;
+
+#[Route('/blog', name: 'blog_')]
+class BlogController extends AbstractController
+{
+    #[Route('/', name: 'index', methods: ['GET'])]
+    public function index(): Response
+    {
+        return $this->render('blog/index');
+    }
+
+    #[Route('/{slug}', name: 'show', requirements: ['slug' => '[a-z0-9-]+'])]
+    #[Route('/post/{slug}', name: 'show_legacy')]
+    public function show(string $slug): Response
+    {
+        return $this->render('blog/show', ['slug' => $slug]);
+    }
+}
+```
+
+| Argument | Description |
+|---|---|
+| `path` | URL pattern, placeholders written `{name}` |
+| `name` | route name (default: built from the class and the method, `app_blog_show`) |
+| `methods` | allowed HTTP methods: `['GET', 'POST']` or `'GET\|POST'` (all when omitted) |
+| `requirements` | regex per placeholder |
+| `defaults` | default values |
+| `options` | free options |
+
+On the class, `#[Route]` is a prefix: its `path` and `name` are prepended to every route of the class, and its `methods`, `requirements`, `defaults` and `options` are the default values of these routes. On an invokable class (`__invoke()`) without method routes, the class attribute defines the route itself. The attribute is repeatable.
+
+`resource` can be a directory (scanned recursively) or a PHP file. `prefix`, `name_prefix`, `requirements`, `defaults`, `options` and `methods` can be used on the import, like for a YAML import:
+
+```yaml
+admin_controllers:
+  resource: ../src/Admin/Controller/
+  type: attribute
+  prefix: /admin
+  name_prefix: admin_
+```
+
+### YAML
+
 `config/routes.yaml`
 
 ```yaml
 home:
-    path: /
-    controller: App\Controller\HomeController::index
-    methods: [GET]
+  path: /
+  controller: App\Controller\HomeController::index
+  methods: [GET]
 
 user_show:
-    path: /user/{id}
-    controller: App\Controller\UserController::show
-    requirements: { id: '\d+' }
+  path: /user/{id}
+  controller: App\Controller\UserController::show
+  requirements: { id: '\d+' }
 
 page:
-    path: /page/{slug}
-    controller: App\Controller\PageController::show
-    defaults: { slug: home }
+  path: /page/{slug}
+  controller: App\Controller\PageController::show
+  defaults: { slug: home }
 
 admin:
-    resource: routes/admin.yaml
-    prefix: /admin
-    name_prefix: admin_
+  resource: routes/admin.yaml
+  prefix: /admin
+  name_prefix: admin_
 ```
 
 | Key | Description |
@@ -129,10 +188,24 @@ admin:
 | `methods` | allowed HTTP methods (all when omitted) |
 | `requirements` | regex per placeholder (default `[^/]+`) |
 | `defaults` | default values; a trailing placeholder with a default is optional |
-| `resource` | imports another routes file (relative to the current file) |
+| `resource` | imports another routes file or a controllers directory (relative to the current file) |
+| `type` | `yaml` or `attribute` (default: `attribute` for a directory or a `.php` file, `yaml` otherwise) |
 | `prefix` / `name_prefix` | prefix applied to the imported paths / names |
 
-A path that matches no route returns a 404. A path that matches with the wrong HTTP method returns a 405.
+A route name must be unique: a name defined twice (in YAML, in attributes, or both) throws a `RoutingException` that gives both locations.
+
+A path that matches no route returns a 404. A path that matches with the wrong HTTP method returns a 405. Routes are tested in the order they are declared.
+
+### Cache
+
+Routes are compiled into `var/cache/routing/routes.{env}.php`.
+
+| Mode | Behavior |
+|---|---|
+| debug | the cache is rebuilt when a routes file, a controller, a `.env` file or the installed packages change |
+| production | the cache is built once, on the first request, and never checked again |
+
+In production, run `php bin/neo cache:clear` on every deployment.
 
 ## Controllers
 
@@ -589,6 +662,7 @@ discount: '10%%'
 | `%kernel.config_path%` | `config/` directory |
 | `%kernel.public_path%` | `public/` directory |
 | `%kernel.templates_path%` | `templates/` directory |
+| `%kernel.cache_path%` | `var/cache/` directory |
 | `%kernel.environment%` | `APP_ENV` |
 | `%kernel.debug%` | debug mode (bool) |
 | `%kernel.version%` | NeoPHP version |
@@ -680,9 +754,9 @@ src/
 │   ├── Controller     controller resolution and AbstractController (made of traits)
 │   ├── Exception      FrameworkException and error pages
 │   ├── Http           Request, Response, JsonResponse, RedirectResponse
-│   ├── Kernel         boot and request lifecycle
+│   ├── Kernel         boot, request lifecycle, cache:clear
 │   ├── Logger         PSR-3 logger, channels, rotation, archives
-│   ├── Routing        YAML routes, matching, URL generation
+│   ├── Routing        YAML and attribute routes, cache, matching, URL generation
 │   └── View           PHP and Twig templates, view helpers discovery
 ├── packages/
 │   ├── Dotenv         .env files loader
@@ -715,3 +789,4 @@ Feature/Helper/Console/FeatureXxxCommand.php    (optional)
 - Views: optional Twig engine, engine-agnostic view helpers discovered in each feature `Helper/View/` directory, `config/framework/view.yaml`; the `asset()` helper is removed (v1.2.0).
 - Assets: `assets/` compiled into `public/builds/` with hashed names, `manifest.json`, `asset()` helper, `asset:reload [--minify]` command, commands discovered in `Helper/Console/` (v1.3.0).
 - Controllers: `AbstractController` made of traits shipped by each feature in `Helper/Controller/` (v1.4.0).
+- Routing: `#[Route]` attribute, controllers imported with `type: attribute` in `routes.yaml`, routes cache, `cache:clear` command, duplicate route names detected (v1.5.0).

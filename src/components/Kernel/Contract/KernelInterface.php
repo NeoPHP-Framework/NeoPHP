@@ -26,6 +26,8 @@ interface KernelInterface
 
     public function getTemplatesPath(): string;
 
+    public function getCachePath(): string;
+
     public function getEnvironment(): string;
 
     public function isDebug(): bool;
