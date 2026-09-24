@@ -64,6 +64,11 @@ abstract class AbstractContainer implements ContainerInterface
         return isset($this->bindings[$id]) || array_key_exists($id, $this->instances);
     }
 
+    public function resolved(string $id): bool
+    {
+        return array_key_exists($this->resolveAlias($id), $this->instances);
+    }
+
     public function has(string $id): bool
     {
         if ($this->bound($id)) {

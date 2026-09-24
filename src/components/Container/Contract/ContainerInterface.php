@@ -20,6 +20,8 @@ interface ContainerInterface
 
     public function bound(string $id): bool;
 
+    public function resolved(string $id): bool;
+
     public function make(string $id, array $parameters = []): mixed;
 
     public function call(callable|array|string $callable, array $parameters = []): mixed;
