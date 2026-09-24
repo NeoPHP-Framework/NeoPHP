@@ -1,0 +1,38 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use NeoPHP\Component\Kernel\KernelManager;
+use NeoPHP\Process\Console\Contract\ConsoleInterface;
+
+if (PHP_SAPI !== 'cli') {
+    fwrite(STDERR, 'The NeoPHP console must be run from the command line.' . PHP_EOL);
+    exit(1);
+}
+
+$autoload = $GLOBALS['_composer_autoload_path'] ?? null;
+
+if ($autoload === null) {
+    foreach ([getcwd() . '/vendor/autoload.php', __DIR__ . '/../../../autoload.php', __DIR__ . '/../vendor/autoload.php'] as $candidate) {
+        if (is_file($candidate)) {
+            $autoload = $candidate;
+            break;
+        }
+    }
+}
+
+if ($autoload === null || !is_file($autoload)) {
+    fwrite(STDERR, 'Unable to find vendor/autoload.php: run "composer install" first.' . PHP_EOL);
+    exit(1);
+}
+
+require $autoload;
+
+$projectDir = dirname(realpath($autoload) ?: $autoload, 2);
+$kernelClass = class_exists('App\\Kernel') ? 'App\\Kernel' : KernelManager::class;
+
+$kernel = new $kernelClass(null, null, $projectDir);
+$kernel->boot();
+
+exit($kernel->getContainer()->get(ConsoleInterface::class)->run($argv));

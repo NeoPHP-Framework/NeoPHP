@@ -3,7 +3,13 @@
     "description": "NeoPHP - an ultra modular PHP framework.",
     "type": "library",
     "license": "MIT",
-    "keywords": ["framework", "neophp", "yaml", "routing"],
+    "keywords": [
+        "framework",
+        "neophp",
+        "yaml",
+        "routing",
+        "http"
+    ],
     "require": {
         "php": ">=8.2"
     },
@@ -14,6 +20,9 @@
             "NeoPHP\\Process\\": "src/process/"
         }
     },
+    "bin": [
+        "bin/neo"
+    ],
     "config": {
         "sort-packages": true
     },
