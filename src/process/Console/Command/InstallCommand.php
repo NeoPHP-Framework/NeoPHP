@@ -44,7 +44,7 @@ class InstallCommand extends AbstractCommand
             $output->writeln('<comment>composer.json was updated: run "composer dump-autoload".</comment>');
         }
 
-        $output->writeln('<success>Done.</success> Start the server with: php vendor/bin/neo serve');
+        $output->writeln('<success>Done.</success> Start the server with: php bin/neo serve');
 
         return self::SUCCESS;
     }

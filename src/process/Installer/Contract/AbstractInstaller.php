@@ -14,6 +14,10 @@ abstract class AbstractInstaller implements InstallerInterface
 {
     public const STUB_EXTENSION = '.stub';
 
+    public const EXECUTABLES = [
+        'bin/neo',
+    ];
+
     public const DIRECTORIES = [
         'assets',
         'config/framework',
@@ -97,6 +101,10 @@ abstract class AbstractInstaller implements InstallerInterface
 
             if (!copy($stub, $target)) {
                 throw new InstallerException('Unable to write the file "{file}".', 0, null, ['file' => $target]);
+            }
+
+            if (in_array($relative, static::EXECUTABLES, true)) {
+                @chmod($target, 0755);
             }
 
             $report[$relative] = $exists ? InstallerInterface::STATUS_OVERWRITTEN : InstallerInterface::STATUS_CREATED;

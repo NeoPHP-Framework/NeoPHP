@@ -91,7 +91,7 @@ abstract class AbstractConsole implements ConsoleInterface
     {
         $output->writeln(sprintf('<title>NeoPHP</title> %s', $this->version));
         $output->writeln();
-        $output->writeln('<comment>Usage:</comment> php vendor/bin/neo <command> [arguments] [--options]');
+        $output->writeln('<comment>Usage:</comment> php bin/neo <command> [arguments] [--options]');
         $output->writeln();
         $output->writeln('<comment>Available commands:</comment>');
 

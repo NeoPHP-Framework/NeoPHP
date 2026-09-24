@@ -1,0 +1,19 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use App\Kernel;
+use NeoPHP\Process\Console\Contract\ConsoleInterface;
+
+if (PHP_SAPI !== 'cli') {
+    fwrite(STDERR, 'The NeoPHP console must be run from the command line.' . PHP_EOL);
+    exit(1);
+}
+
+require dirname(__DIR__) . '/vendor/autoload.php';
+
+$kernel = new Kernel();
+$kernel->boot();
+
+exit($kernel->getContainer()->get(ConsoleInterface::class)->run($argv));
