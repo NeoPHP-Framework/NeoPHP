@@ -24,5 +24,9 @@ interface ContainerInterface
 
     public function make(string $id, array $parameters = []): mixed;
 
+    public function instantiate(string $class, array $parameters = []): object;
+
+    public function inject(object $object): object;
+
     public function call(callable|array|string $callable, array $parameters = []): mixed;
 }
