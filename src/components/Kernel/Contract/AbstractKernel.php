@@ -15,6 +15,8 @@ use NeoPHP\Component\Container\Provider\ContainerProvider;
 use NeoPHP\Component\Controller\Contract\ControllerResolverInterface;
 use NeoPHP\Component\Controller\Provider\ControllerProvider;
 use NeoPHP\Component\Cookie\Provider\CookieProvider;
+use NeoPHP\Component\Event\Contract\EventDispatcherInterface;
+use NeoPHP\Component\Event\Provider\EventProvider;
 use NeoPHP\Component\Exception\ExceptionManager;
 use NeoPHP\Component\Exception\Provider\ExceptionProvider;
 use NeoPHP\Component\Flash\Provider\FlashProvider;
@@ -22,6 +24,11 @@ use NeoPHP\Component\Http\Provider\HttpProvider;
 use NeoPHP\Component\Http\Request\Request;
 use NeoPHP\Component\Http\Response\JsonResponse;
 use NeoPHP\Component\Http\Response\Response;
+use NeoPHP\Component\Kernel\Event\ControllerEvent;
+use NeoPHP\Component\Kernel\Event\ExceptionEvent;
+use NeoPHP\Component\Kernel\Event\RequestEvent;
+use NeoPHP\Component\Kernel\Event\ResponseEvent;
+use NeoPHP\Component\Kernel\Event\TerminateEvent;
 use NeoPHP\Component\Kernel\Exception\KernelException;
 use NeoPHP\Component\Kernel\Provider\KernelProvider;
 use NeoPHP\Component\Logger\Contract\LoggerManagerInterface;
@@ -121,16 +128,22 @@ abstract class AbstractKernel implements KernelInterface
             $this->boot();
             $this->getContainer()->instance(Request::class, $request);
 
-            $middlewares = $this->getContainer()->get(MiddlewareManagerInterface::class);
-            $response = $middlewares->handle($request, $middlewares->getGlobal(), fn (Request $request): Response => $this->dispatch($request));
+            $event = $this->events()->dispatch(new RequestEvent($this, $request));
+
+            if ($event->hasResponse()) {
+                $response = $event->getResponse();
+            } else {
+                $middlewares = $this->getContainer()->get(MiddlewareManagerInterface::class);
+                $response = $middlewares->handle($request, $middlewares->getGlobal(), fn (Request $request): Response => $this->dispatch($request));
+            }
         } catch (Throwable $exception) {
             $response = $this->handleException($exception, $request);
         }
 
         try {
-            $this->terminate($request, $response);
+            $response = $this->filterResponse($request, $response);
         } catch (Throwable $exception) {
-            $response = $this->handleException($exception, $request);
+            $response = $this->handleException($exception, $request, false);
         }
 
         return $response->prepare($request);
@@ -138,7 +151,23 @@ abstract class AbstractKernel implements KernelInterface
 
     public function run(): void
     {
-        $this->handle(Request::fromGlobals())->send();
+        $request = Request::fromGlobals();
+        $response = $this->handle($request)->send();
+
+        $this->terminate($request, $response);
+    }
+
+    public function terminate(Request $request, Response $response): void
+    {
+        if ($this->container === null) {
+            return;
+        }
+
+        try {
+            $this->events()->dispatch(new TerminateEvent($this, $request, $response));
+        } catch (Throwable $exception) {
+            $this->logException($exception, $request, 500);
+        }
     }
 
     public function getContainer(): ContainerInterface
@@ -222,34 +251,42 @@ abstract class AbstractKernel implements KernelInterface
         $middlewares = $container->get(MiddlewareManagerInterface::class);
         $routeMiddlewares = $middlewares->forController($match->getController(), (array) $match->route->getOption('middlewares', []));
 
-        return $middlewares->handle($request, $routeMiddlewares, static function (Request $request) use ($container, $match): Response {
+        return $middlewares->handle($request, $routeMiddlewares, function (Request $request) use ($container, $match): Response {
             $container->instance(Request::class, $request);
+            $event = $this->events()->dispatch(new ControllerEvent($this, $request, $match->getController(), $match->parameters));
 
-            return $container->get(ControllerResolverInterface::class)->dispatch($match->getController(), $request, $match->parameters);
+            return $container->get(ControllerResolverInterface::class)->dispatch($event->getController(), $request, $event->getParameters());
         });
     }
 
-    protected function terminate(Request $request, Response $response): void
+    protected function filterResponse(Request $request, Response $response): Response
     {
-        if ($this->container === null || !$this->container->bound(TerminableInterface::TERMINABLES_ID)) {
-            return;
+        if ($this->container === null) {
+            return $response;
         }
 
-        foreach ((array) $this->container->get(TerminableInterface::TERMINABLES_ID) as $id) {
-            if (!$this->container->resolved((string) $id)) {
-                continue;
-            }
-
-            $service = $this->container->get((string) $id);
-
-            if ($service instanceof TerminableInterface) {
-                $service->terminate($request, $response);
-            }
-        }
+        return $this->events()->dispatch(new ResponseEvent($this, $request, $response))->getResponse();
     }
 
-    protected function handleException(Throwable $exception, Request $request): Response
+    protected function events(): EventDispatcherInterface
     {
+        return $this->getContainer()->get(EventDispatcherInterface::class);
+    }
+
+    protected function handleException(Throwable $exception, Request $request, bool $dispatch = true): Response
+    {
+        if ($dispatch && $this->container !== null) {
+            try {
+                $event = $this->events()->dispatch(new ExceptionEvent($this, $request, $exception));
+                $exception = $event->getThrowable();
+
+                if ($event->hasResponse()) {
+                    return $event->getResponse();
+                }
+            } catch (Throwable) {
+            }
+        }
+
         $manager = $this->container !== null && $this->container->has(ExceptionManager::class)
             ? $this->container->get(ExceptionManager::class)
             : new ExceptionManager($this->debug);
@@ -304,6 +341,7 @@ abstract class AbstractKernel implements KernelInterface
             ConfigProvider::class,
             LoggerProvider::class,
             HttpProvider::class,
+            EventProvider::class,
             MiddlewareProvider::class,
             RoutingProvider::class,
             CookieProvider::class,

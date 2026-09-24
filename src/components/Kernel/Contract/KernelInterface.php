@@ -16,6 +16,8 @@ interface KernelInterface
 
     public function run(): void;
 
+    public function terminate(Request $request, Response $response): void;
+
     public function getContainer(): ContainerInterface;
 
     public function getRootPath(): string;

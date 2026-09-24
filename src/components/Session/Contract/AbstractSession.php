@@ -4,12 +4,9 @@ declare(strict_types=1);
 
 namespace NeoPHP\Component\Session\Contract;
 
-use NeoPHP\Component\Http\Request\Request;
-use NeoPHP\Component\Http\Response\Response;
-use NeoPHP\Component\Kernel\Contract\TerminableInterface;
 use NeoPHP\Component\Session\Exception\SessionException;
 
-abstract class AbstractSession implements SessionInterface, TerminableInterface
+abstract class AbstractSession implements SessionInterface
 {
     public const DEFAULT_OPTIONS = [
         'name' => 'NEOSESSID',
@@ -137,11 +134,6 @@ abstract class AbstractSession implements SessionInterface, TerminableInterface
         }
 
         $this->started = false;
-    }
-
-    public function terminate(Request $request, Response $response): void
-    {
-        $this->save();
     }
 
     protected function readable(): bool

@@ -5,11 +5,9 @@ declare(strict_types=1);
 namespace NeoPHP\Component\Cookie\Contract;
 
 use NeoPHP\Component\Cookie\Exception\CookieException;
-use NeoPHP\Component\Http\Request\Request;
 use NeoPHP\Component\Http\Response\Response;
-use NeoPHP\Component\Kernel\Contract\TerminableInterface;
 
-abstract class AbstractCookie implements CookieInterface, TerminableInterface
+abstract class AbstractCookie implements CookieInterface
 {
     public const DEFAULT_OPTIONS = [
         'lifetime' => 0,
@@ -126,11 +124,6 @@ abstract class AbstractCookie implements CookieInterface, TerminableInterface
         $this->queue = [];
 
         return $response;
-    }
-
-    public function terminate(Request $request, Response $response): void
-    {
-        $this->apply($response);
     }
 
     protected function options(string $name, array $options): array

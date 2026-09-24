@@ -14,6 +14,7 @@ NeoPHP v1.x is the base of the framework. It has no dependency other than PHP 8.
 - middlewares (PSR-15 style), global or attached to routes and controllers
 - a dependency injection container with autowiring, `#[Autowire]`, `#[Inject]` and `config/services.yaml`
 - a configuration loaded from `.env` files and `config/**/*.yaml`, with placeholders (`%kernel.root_path%`, `%env(APP_NAME)%`...)
+- events and listeners (PSR-14 style), with the kernel events
 - a console (`php bin/neo`) that generates the project files
 
 ## Installation (development)
@@ -66,6 +67,7 @@ config/routes.yaml
 config/services.yaml
 config/framework/app.yaml
 config/framework/asset.yaml
+config/framework/event.yaml
 config/framework/logger.yaml
 config/framework/middleware.yaml
 config/framework/view.yaml
@@ -96,6 +98,7 @@ var/sessions/
 | `php bin/neo route:list` | lists the routes |
 | `php bin/neo middleware:list` | lists the global middlewares, the aliases and the groups |
 | `php bin/neo service:list [filter]` | lists the services, the aliases and the interfaces bound automatically |
+| `php bin/neo event:list [filter]` | lists the events and their listeners in the order they are called |
 | `php bin/neo cache:clear` | clears `var/cache/` (routes, Twig templates...) |
 | `php bin/neo asset:reload [--minify]` | compiles `assets/` into `public/builds/` and rebuilds the manifest |
 
@@ -265,6 +268,7 @@ A controller returns a `Response`. For convenience, a `string` becomes an HTML r
 | `getSession()` | `SessionInterface` |
 | `getCookies()` | `CookieInterface` |
 | `addFlash($type, $message)` | adds a flash message |
+| `dispatch($event)` | dispatches an event (see [Events](#events)) |
 
 `AbstractController` has no method of its own: it is made of traits, and each feature ships its trait in `Feature/Helper/Controller/`:
 
@@ -272,6 +276,7 @@ A controller returns a `Response`. For convenience, a `string` becomes an HTML r
 |---|---|
 | `Container/Helper/Controller/ContainerController` | `setContainer()`, `get()`, `has()` |
 | `Cookie/Helper/Controller/CookieController` | `getCookies()` |
+| `Event/Helper/Controller/EventController` | `dispatch()` |
 | `Flash/Helper/Controller/FlashController` | `addFlash()` |
 | `Http/Helper/Controller/HttpController` | `json()`, `redirect()`, `createNotFoundException()`, `createAccessDeniedException()` |
 | `Routing/Helper/Controller/RoutingController` | `generateUrl()`, `redirectToRoute()` |
@@ -283,6 +288,7 @@ abstract class AbstractController implements ControllerInterface
 {
     use ContainerController;
     use CookieController;
+    use EventController;
     use FlashController;
     use HttpController;
     use RoutingController;
@@ -809,6 +815,125 @@ When one class of the file implements an interface, the interface is bound to th
 
 `services.yaml` is compiled into `var/cache/service/services.{env}.php`, rebuilt in debug when the file or a class of a `resource` changes. In production, run `php bin/neo cache:clear` on every deployment.
 
+## Events
+
+An event is an object. Listeners are called with it, by order of priority.
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Event;
+
+use NeoPHP\Component\Event\Contract\AbstractEvent;
+
+class UserRegisteredEvent extends AbstractEvent
+{
+    public function __construct(public string $email)
+    {
+    }
+}
+```
+
+```php
+$this->dispatch(new UserRegisteredEvent($email));
+```
+
+Outside a controller, inject `NeoPHP\Component\Event\Contract\EventDispatcherInterface` and call `dispatch($event)`: it returns the event, so a listener can fill it with data.
+
+The interfaces mirror PSR-14 without dependency. An event extending `AbstractEvent` (or implementing `StoppableEventInterface`) can be stopped: `$event->stopPropagation()` prevents the next listeners from being called.
+
+### Listeners
+
+`#[AsListener]` on a class (method `__invoke()`) or on public methods. The event is the type of the first parameter:
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Listener;
+
+use App\Event\UserRegisteredEvent;
+use NeoPHP\Component\Event\Attribute\AsListener;
+
+#[AsListener]
+class SendWelcomeMail
+{
+    public function __construct(protected MailerInterface $mailer)
+    {
+    }
+
+    public function __invoke(UserRegisteredEvent $event): void
+    {
+        $this->mailer->send($event->email);
+    }
+}
+
+class AuditListener
+{
+    #[AsListener(priority: 100)]
+    public function onRegistered(UserRegisteredEvent $event): void
+    {
+    }
+}
+```
+
+| Argument | Description |
+|---|---|
+| `event` | event class (default: type of the first parameter) |
+| `method` | on a class: method to call (default: `__invoke`) |
+| `priority` | highest first (default `0`); listeners with the same priority are called in their declaration order |
+
+A listener can also listen to a parent class or an interface: it is then called for every event that extends it.
+
+A subscriber lists several events:
+
+```php
+use NeoPHP\Component\Event\Contract\EventSubscriberInterface;
+
+class UserSubscriber implements EventSubscriberInterface
+{
+    public static function getSubscribedEvents(): array
+    {
+        return [
+            UserRegisteredEvent::class => 'onRegistered',
+            UserDeletedEvent::class => ['onDeleted', 10],
+            PasswordChangedEvent::class => [['notify', 10], ['log']],
+        ];
+    }
+}
+```
+
+Listeners and subscribers are discovered in `src/` and in the framework (`Feature/Helper/Listener/`), built by the container (their dependencies are autowired) and instantiated only when their event is dispatched. The discovery is cached in `var/cache/event/`.
+
+They can also be declared in `config/framework/event.yaml`:
+
+```yaml
+listeners:
+  App\Event\UserRegisteredEvent:
+    - App\Listener\SendWelcomeMail
+    -   listener: App\Listener\Audit
+        method: onRegistered
+        priority: 10
+
+subscribers:
+  - App\Subscriber\UserSubscriber
+```
+
+### Kernel events
+
+| Event | When | Usage |
+|---|---|---|
+| `RequestEvent` | before the global middlewares | `setResponse()` answers without routing (maintenance...) |
+| `ControllerEvent` | after the route middlewares, before the controller | `setController()`, `setParameters()` |
+| `ResponseEvent` | for every response, errors included | modifies or replaces the response |
+| `ExceptionEvent` | when an exception is thrown | `setResponse()` replaces the error page, `setThrowable()` |
+| `TerminateEvent` | after the response is sent | slow work (mails, logs) |
+
+They are in `NeoPHP\Component\Kernel\Event\` and give access to `getKernel()` and `getRequest()`. The framework uses them too: the queued cookies are added and the session is saved by listeners of `ResponseEvent` (`Cookie/Helper/Listener/`, `Session/Helper/Listener/`).
+
 ## Session, cookies and flash messages
 
 They are configured in `config/framework/app.yaml`:
@@ -1109,11 +1234,11 @@ src/
 │   ├── Container      dependency injection container, autowiring, #[Autowire], #[Inject], providers
 │   ├── Controller     controller resolution and AbstractController (made of traits)
 │   ├── Cookie         cookies read from the request, queued, signed
+│   ├── Event          event dispatcher, listeners, subscribers
 │   ├── Exception      FrameworkException and error pages
 │   ├── Flash          flash messages stored in the session
 │   ├── Http           Request, Response, JsonResponse, RedirectResponse
-│   ├── Kernel         boot, request lifecycle, class discovery, cache, cache:clear
-│   ├── Logger         PSR-3 logger, channels, rotation, archives
+│   ├── Kernel         boot, request lifecycle, kernel events, class discovery, cache, cache:clear│   ├── Logger         PSR-3 logger, channels, rotation, archives
 │   ├── Middleware     middlewares, pipeline, aliases and groups
 │   ├── Routing        YAML and attribute routes, cache, matching, URL generation
 │   ├── Service        config/services.yaml, resources, aliases, interfaces
@@ -1137,6 +1262,7 @@ Feature/Contract/AbstractFeature.php
 Feature/Helper/Controller/FeatureController.php (optional)
 Feature/Helper/View/FeatureViewHelper.php       (optional)
 Feature/Helper/Console/FeatureXxxCommand.php    (optional)
+Feature/Helper/Listener/FeatureListener.php     (optional)
 ```
 
 ## Changes
@@ -1154,3 +1280,4 @@ Feature/Helper/Console/FeatureXxxCommand.php    (optional)
 - Session, cookies (signed with `APP_SECRET`) and flash messages configured in `app.yaml`, with controller traits and view helpers (v1.6.0).
 - Middlewares: PSR-15 style interfaces, global middlewares (`middleware.yaml`, `#[AsMiddleware]`), aliases and groups, route middlewares (`#[Middleware]`, `#[Route(middlewares)]`, `routes.yaml`), `middleware:list` command (v1.7.0).
 - Services: `#[Autowire]` on parameters, `#[Inject]` on properties, `config/services.yaml` (resources, arguments, calls, factories, aliases), shared services by default, interfaces bound to their single implementation, `service:list` command (v1.8.0).
+- Events: PSR-14 style dispatcher, `#[AsListener]`, subscribers, `event.yaml`, stoppable events, kernel events (`RequestEvent`, `ControllerEvent`, `ResponseEvent`, `ExceptionEvent`, `TerminateEvent`) replacing `TerminableInterface`, `dispatch()` in controllers, `event:list` command (v1.9.0).
