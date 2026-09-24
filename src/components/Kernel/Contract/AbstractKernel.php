@@ -162,6 +162,11 @@ abstract class AbstractKernel implements KernelInterface
         return $this->rootPath . DIRECTORY_SEPARATOR . 'templates';
     }
 
+    public function getCachePath(): string
+    {
+        return $this->rootPath . DIRECTORY_SEPARATOR . 'var' . DIRECTORY_SEPARATOR . 'cache';
+    }
+
     public function getEnvironment(): string
     {
         return $this->environment;
@@ -188,6 +193,7 @@ abstract class AbstractKernel implements KernelInterface
             'kernel.config_path' => $this->getConfigPath(),
             'kernel.public_path' => $this->getPublicPath(),
             'kernel.templates_path' => $this->getTemplatesPath(),
+            'kernel.cache_path' => $this->getCachePath(),
             'kernel.environment' => $this->environment,
             'kernel.debug' => $this->debug,
             'kernel.version' => $this->getVersion(),
