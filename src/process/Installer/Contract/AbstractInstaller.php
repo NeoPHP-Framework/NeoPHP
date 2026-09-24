@@ -28,6 +28,7 @@ abstract class AbstractInstaller implements InstallerInterface
         'src/Middleware',
         'src/Service',
         'tests',
+        'var/log',
     ];
 
     public function __construct(protected string $skeletonDir)

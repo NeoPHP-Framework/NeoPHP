@@ -1,0 +1,25 @@
+channels:
+  app:
+    enabled: true
+    extension: log
+  framework:
+    enabled: true
+    extension: log
+
+rotation:
+  enabled: true
+  max_files: 30
+  when:
+    filesize: ~
+    every: day
+
+archive:
+  enabled: false
+  extension: zip
+
+settings:
+  path: '%kernel.root_path%/var/log'
+  format_message: '[%datetime%] %channel%.%type% %message% %context%'
+  date_format: 'Y-m-d H:i:s'
+  timezone: ~
+  minimum_level: debug
