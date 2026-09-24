@@ -8,6 +8,8 @@ use NeoPHP\Component\Config\Exception\ConfigException;
 
 abstract class AbstractConfig implements ConfigInterface
 {
+    public const PLACEHOLDER = '(env\([^)%\s]*\)|[A-Za-z_][\w-]*(?:\.[\w-]+)+)';
+
     protected array $items = [];
 
     public function get(string $key, mixed $default = null): mixed
@@ -75,11 +77,11 @@ abstract class AbstractConfig implements ConfigInterface
             return $value;
         }
 
-        if (preg_match('/^%([^%\s]+)%$/', $value, $m) === 1) {
+        if (preg_match('/^%' . static::PLACEHOLDER . '%$/', $value, $m) === 1) {
             return $this->resolvePlaceholder($m[1], $resolving);
         }
 
-        $resolved = preg_replace_callback('/%%|%([^%\s]+)%/', function (array $m) use ($resolving): string {
+        $resolved = preg_replace_callback('/%%|%' . static::PLACEHOLDER . '%/', function (array $m) use ($resolving): string {
             if ($m[0] === '%%') {
                 return '%';
             }
