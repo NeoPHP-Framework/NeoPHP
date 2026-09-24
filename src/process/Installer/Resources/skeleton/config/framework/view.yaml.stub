@@ -1,0 +1,12 @@
+paths:
+  - '%kernel.templates_path%'
+
+namespaces: {}
+
+helpers: []
+
+twig:
+  enabled: true
+  cache: '%kernel.root_path%/var/cache/twig'
+  auto_reload: true
+  strict_variables: '%kernel.debug%'

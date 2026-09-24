@@ -16,10 +16,11 @@ class Template
     private array $openSections = [];
 
     public function __construct(
-        private ViewInterface $view,
-        private Sections $sections,
-        private array $helpers,
-        private array $parameters = [],
+        protected ViewInterface $view,
+        protected Sections $sections,
+        protected array $functions = [],
+        protected array $filters = [],
+        protected array $parameters = [],
     ) {
     }
 
@@ -119,12 +120,21 @@ class Template
         return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 
-    public function __call(string $name, array $arguments): mixed
+    public function filter(string $name, mixed $value, mixed ...$arguments): mixed
     {
-        if (!isset($this->helpers[$name])) {
-            throw new ViewException(sprintf('Unknown view helper "%s()". Register it with ViewInterface::addHelper().', $name));
+        if (!isset($this->filters[$name])) {
+            throw new ViewException(sprintf('Unknown view filter "%s". Register it with ViewInterface::addFilter() or a ViewFilterInterface helper.', $name));
         }
 
-        return ($this->helpers[$name])(...$arguments);
+        return ($this->filters[$name])($value, ...$arguments);
+    }
+
+    public function __call(string $name, array $arguments): mixed
+    {
+        if (!isset($this->functions[$name])) {
+            throw new ViewException(sprintf('Unknown view function "%s()". Register it with ViewInterface::addHelper() or a ViewFunctionInterface helper.', $name));
+        }
+
+        return ($this->functions[$name])(...$arguments);
     }
 }

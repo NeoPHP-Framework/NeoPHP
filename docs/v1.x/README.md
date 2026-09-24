@@ -6,7 +6,8 @@ NeoPHP v1.x is the base of the framework. It has no dependency other than PHP 8.
 
 - routes defined in `config/routes.yaml`
 - a YAML parser
-- PHP views stored in `templates/`
+- views stored in `templates/`: PHP templates, and Twig templates when `twig/twig` is installed
+- view helpers shared by every template engine, shipped by each feature in `Helper/View/`
 - an HTTP layer (`Request`, `Response`, `JsonResponse`, `RedirectResponse`)
 - a configuration loaded from `.env` files and `config/**/*.yaml`, with placeholders (`%kernel.root_path%`, `%env(APP_NAME)%`...)
 - a console (`php bin/neo`) that generates the project files
@@ -59,6 +60,8 @@ php bin/neo serve
 assets/
 config/routes.yaml
 config/framework/app.yaml
+config/framework/logger.yaml
+config/framework/view.yaml
 config/packages/
 public/.htaccess
 public/index.php
@@ -69,6 +72,8 @@ src/Command/  src/Event/  src/Listener/  src/Middleware/  src/Service/
 templates/base.php
 templates/home/index.php
 tests/
+var/cache/
+var/log/
 ```
 
 ## Console
@@ -197,7 +202,18 @@ Errors are rendered as HTML, or as JSON when the request sends `Accept: applicat
 
 ## Views
 
-Templates are PHP files in `templates/`: `render('user/show')` renders `templates/user/show.php`. Inside a template, `$this` gives access to:
+Templates live in `templates/`. The extension selects the engine:
+
+| Extension | Engine |
+|---|---|
+| `.php` | built-in PHP engine |
+| `.html.twig`, `.twig` | Twig, only when `twig/twig` is installed (`composer require twig/twig`) |
+
+`render('user/show')` looks for `user/show.php`, then `user/show.html.twig`, then `user/show.twig`. Rendering a `.twig` template without Twig installed throws an explicit error.
+
+### PHP templates
+
+Inside a PHP template, `$this` gives access to:
 
 | Method | Description |
 |---|---|
@@ -206,8 +222,8 @@ Templates are PHP files in `templates/`: `render('user/show')` renders `template
 | `$this->section('name')` | outputs a section in a layout |
 | `$this->include('partials/menu', [...])` | renders a partial |
 | `$this->e($value)` | escapes a value for HTML |
+| `$this->filter('name', $value, ...)` | applies a view filter |
 | `$this->path('route', [...])` | generates the URL of a route |
-| `$this->asset('app.css')` | returns `/app.css` |
 | `$this->config('framework.app.name')` | reads a configuration value |
 
 `templates/base.php`
@@ -232,6 +248,119 @@ Templates are PHP files in `templates/`: `render('user/show')` renders `template
 <a href="<?= $this->path('home') ?>">Home</a>
 <?php $this->stop() ?>
 ```
+
+### Twig templates
+
+`templates/base.html.twig`
+
+```twig
+<!DOCTYPE html>
+<html>
+<head><title>{% block title %}{{ config('framework.app.name') }}{% endblock %}</title></head>
+<body>
+{% block body %}{% endblock %}
+</body>
+</html>
+```
+
+`templates/user/show.html.twig`
+
+```twig
+{% extends 'base.html.twig' %}
+
+{% block body %}
+<h1>User #{{ id }}</h1>
+<a href="{{ path('home') }}">Home</a>
+{% endblock %}
+```
+
+Twig errors are wrapped in a `ViewException`.
+
+### View helpers
+
+A view helper works with every engine and never imports Twig. Its interfaces define what it provides:
+
+| Interface | Result |
+|---|---|
+| `ViewFunctionInterface` | function: `{{ name(...) }}` / `$this->name(...)` |
+| `ViewFilterInterface` | filter: `{{ value\|name }}` / `$this->filter('name', $value)` |
+| `ViewGlobalInterface` | global variable (`getValue()`): `{{ name }}` / `$name` |
+| `ViewSafeHtmlInterface` | the output is not escaped |
+
+`getName()` gives the name used in templates. Functions and filters are called through `__invoke()`.
+
+Each feature ships its own helpers in `Feature/Helper/View/FeatureViewHelper.php`:
+
+| Helper | Name |
+|---|---|
+| `Config/Helper/View/ConfigViewHelper.php` | `config()` |
+| `Routing/Helper/View/PathViewHelper.php` | `path()` |
+
+The View component contains no helper: it discovers every `Helper/View/` directory of the framework and of the application (`src/**/Helper/View/`). Dependencies are autowired. An application helper with the same name as a framework helper replaces it.
+
+`src/Shop/Helper/View/PriceViewHelper.php`
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Shop\Helper\View;
+
+use NeoPHP\Component\View\Contract\ViewFilterInterface;
+use NeoPHP\Component\View\Contract\ViewFunctionInterface;
+
+class PriceViewHelper implements ViewFunctionInterface, ViewFilterInterface
+{
+    public function getName(): string
+    {
+        return 'price';
+    }
+
+    public function __invoke(float $amount, string $currency = '€'): string
+    {
+        return number_format($amount, 2, ',', ' ') . ' ' . $currency;
+    }
+}
+```
+
+```twig
+{{ price(12.5) }}  {{ amount|price('$') }}
+```
+
+```php
+<?= $this->price(12.5) ?>  <?= $this->filter('price', $amount, '$') ?>
+```
+
+Helpers stored outside a `Helper/View/` directory can be listed under `helpers` in `config/framework/view.yaml`.
+
+### Configuration
+
+`config/framework/view.yaml`
+
+```yaml
+paths:
+  - '%kernel.templates_path%'
+
+namespaces:
+  admin: '%kernel.root_path%/templates/admin'
+
+helpers: []
+
+twig:
+  enabled: true
+  cache: '%kernel.root_path%/var/cache/twig'
+  auto_reload: true
+  strict_variables: '%kernel.debug%'
+```
+
+| Option | Description |
+|---|---|
+| `paths` | template directories |
+| `namespaces` | named directories: `@admin/dashboard` renders `templates/admin/dashboard.*` |
+| `helpers` | additional helper classes |
+| `twig.enabled` | disables Twig even when it is installed |
+| `twig.*` | Twig options: `cache`, `debug`, `auto_reload`, `strict_variables`, `autoescape`, `charset` |
 
 ## YAML
 
@@ -428,8 +557,9 @@ src/
 │   ├── Kernel         boot and request lifecycle
 │   ├── Logger         PSR-3 logger, channels, rotation, archives
 │   ├── Routing        YAML routes, matching, URL generation
-│   └── View           PHP templates, layouts, sections, helpers
+│   └── View           PHP and Twig templates, view helpers discovery
 ├── packages/
+│   ├── Dotenv         .env files loader
 │   └── Yaml           YAML parser
 └── process/
     ├── Console        neo command line (install, serve, route:list)
@@ -443,6 +573,7 @@ Feature/FeatureManager.php
 Feature/Provider/FeatureProvider.php
 Feature/Contract/FeatureInterface.php
 Feature/Contract/AbstractFeature.php
+Feature/Helper/View/FeatureViewHelper.php   (optional)
 ```
 
 ## Changes
@@ -453,3 +584,4 @@ Feature/Contract/AbstractFeature.php
 - `bin/neo` generated in the project by `neo install`.
 - Configuration: `.env` files, `config/**/*.yaml`, placeholders `%kernel.*%`, `%env(...)%` and `%config.key%`.
 - Logger: PSR-3 compatible logger, channels, rotation by size or period, zip/gz archives (v1.1.0).
+- Views: optional Twig engine, engine-agnostic view helpers discovered in each feature `Helper/View/` directory, `config/framework/view.yaml`; the `asset()` helper is removed (v1.2.0).
