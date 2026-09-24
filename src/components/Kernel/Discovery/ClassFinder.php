@@ -15,6 +15,11 @@ class ClassFinder
 
     public function find(string $path, ?string $contains = null): array
     {
+        return array_keys($this->map($path, $contains));
+    }
+
+    public function map(string $path, ?string $contains = null): array
+    {
         $classes = [];
 
         foreach ($this->files($path) as $file) {
@@ -25,11 +30,11 @@ class ClassFinder
             }
 
             foreach ($this->classesIn($content) as $class) {
-                $classes[] = $class;
+                $classes[$class] ??= $file;
             }
         }
 
-        return array_values(array_unique($classes));
+        return $classes;
     }
 
     public function getResources(): array
