@@ -8,7 +8,7 @@ NeoPHP v1.x is the base of the framework. It has no dependency other than PHP 8.
 - a YAML parser
 - PHP views stored in `templates/`
 - an HTTP layer (`Request`, `Response`, `JsonResponse`, `RedirectResponse`)
-- a console (`php vendor/bin/neo`) that generates the project files
+- a console (`php bin/neo`) that generates the project files
 
 ## Installation (development)
 
@@ -36,8 +36,9 @@ Then:
 composer install
 php vendor/bin/neo install
 composer dump-autoload
-php vendor/bin/neo serve
+php bin/neo serve
 ```
+`php vendor/bin/neo install` is only needed once: it generates `bin/neo` in the project, then every command is run with `php bin/neo`.
 
 `neo install` generates the project files and adds the `App\` autoload to `composer.json`. Existing files are never overwritten, unless `--force` is given.
 
@@ -62,10 +63,10 @@ tests/
 
 | Command | Description |
 |---|---|
-| `php vendor/bin/neo` | lists the commands |
-| `php vendor/bin/neo install [--force]` | generates the project files |
-| `php vendor/bin/neo serve [--host=127.0.0.1] [--port=8000]` | starts the PHP development server |
-| `php vendor/bin/neo route:list` | lists the routes |
+| `php bin/neo` | lists the commands |
+| `php bin/neo install [--force]` | generates the project files |
+| `php bin/neo serve [--host=127.0.0.1] [--port=8000]` | starts the PHP development server |
+| `php bin/neo route:list` | lists the routes |
 
 ## Routes
 
@@ -289,3 +290,4 @@ Feature/Contract/AbstractFeature.php
 - Initial version: routes in YAML, YAML parser, PHP views, controllers, container and centralized exceptions.
 - HTTP layer: `Request`, `Response`, `JsonResponse`, `RedirectResponse`, HTTP exceptions, JSON errors.
 - Console `neo` with the `install`, `serve` and `route:list` commands.
+- `bin/neo` generated in the project by `neo install`.
