@@ -16,8 +16,11 @@ class YamlRouteLoader
 
     private array $loading = [];
 
-    public function __construct(private YamlInterface $yaml)
+    protected mixed $resolver;
+
+    public function __construct(protected YamlInterface $yaml, ?callable $resolver = null)
     {
+        $this->resolver = $resolver;
     }
 
     public function load(string $file): RouteCollection
@@ -36,6 +39,10 @@ class YamlRouteLoader
 
         try {
             $definitions = $this->yaml->parseFile($real) ?? [];
+
+            if ($this->resolver !== null && is_array($definitions)) {
+                $definitions = ($this->resolver)($definitions);
+            }
 
             if (!is_array($definitions)) {
                 throw new RoutingException(sprintf('The routes file "%s" must contain a mapping of routes.', $real));

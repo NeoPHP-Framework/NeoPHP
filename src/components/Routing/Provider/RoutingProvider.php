@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NeoPHP\Component\Routing\Provider;
 
+use NeoPHP\Component\Config\Contract\ConfigInterface;
 use NeoPHP\Component\Container\Contract\AbstractProvider;
 use NeoPHP\Component\Container\Contract\ContainerInterface;
 use NeoPHP\Component\Routing\Contract\RoutingInterface;
@@ -17,13 +18,20 @@ class RoutingProvider extends AbstractProvider
     public function register(ContainerInterface $container): void
     {
         $container->singleton(RoutingInterface::class, static function (ContainerInterface $container): RoutingInterface {
-            $routing = new RoutingManager($container->get(YamlInterface::class));
-            $configDir = $container->has('kernel.config_dir') ? (string) $container->get('kernel.config_dir') : '';
+            $resolver = null;
+
+            if ($container->has(ConfigInterface::class)) {
+                $config = $container->get(ConfigInterface::class);
+                $resolver = static fn (array $definitions): array => $config->resolve($definitions);
+            }
+
+            $routing = new RoutingManager($container->get(YamlInterface::class), null, $resolver);
+            $configPath = $container->has('kernel.config_path') ? (string) $container->get('kernel.config_path') : '';
 
             foreach (self::ROUTE_FILES as $file) {
-                $path = $configDir . DIRECTORY_SEPARATOR . $file;
+                $path = $configPath . DIRECTORY_SEPARATOR . $file;
 
-                if ($configDir !== '' && is_file($path)) {
+                if ($configPath !== '' && is_file($path)) {
                     $routing->loadYaml($path);
                     break;
                 }

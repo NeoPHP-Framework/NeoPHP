@@ -12,17 +12,20 @@ use NeoPHP\Package\Yaml\YamlManager;
 
 class RoutingManager extends AbstractRouting
 {
-    private YamlInterface $yaml;
+    protected YamlInterface $yaml;
 
-    public function __construct(?YamlInterface $yaml = null, ?RouteCollection $routes = null)
+    protected mixed $resolver;
+
+    public function __construct(?YamlInterface $yaml = null, ?RouteCollection $routes = null, ?callable $resolver = null)
     {
         parent::__construct($routes);
         $this->yaml = $yaml ?? new YamlManager();
+        $this->resolver = $resolver;
     }
 
     public function loadYaml(string $file): static
     {
-        $this->routes->addCollection((new YamlRouteLoader($this->yaml))->load($file));
+        $this->routes->addCollection((new YamlRouteLoader($this->yaml, $this->resolver))->load($file));
 
         return $this;
     }
