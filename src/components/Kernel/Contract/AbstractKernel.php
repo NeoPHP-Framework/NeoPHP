@@ -13,12 +13,18 @@ use NeoPHP\Component\Controller\Contract\ControllerResolverInterface;
 use NeoPHP\Component\Controller\Provider\ControllerProvider;
 use NeoPHP\Component\Exception\ExceptionManager;
 use NeoPHP\Component\Exception\Provider\ExceptionProvider;
+use NeoPHP\Component\Http\Provider\HttpProvider;
+use NeoPHP\Component\Http\Request\Request;
+use NeoPHP\Component\Http\Response\JsonResponse;
+use NeoPHP\Component\Http\Response\Response;
 use NeoPHP\Component\Kernel\Exception\KernelException;
 use NeoPHP\Component\Kernel\Provider\KernelProvider;
 use NeoPHP\Component\Routing\Contract\RoutingInterface;
 use NeoPHP\Component\Routing\Provider\RoutingProvider;
 use NeoPHP\Component\View\Provider\ViewProvider;
 use NeoPHP\Package\Yaml\Provider\YamlProvider;
+use NeoPHP\Process\Console\Provider\ConsoleProvider;
+use NeoPHP\Process\Installer\Provider\InstallerProvider;
 use ReflectionObject;
 use Throwable;
 
@@ -86,40 +92,28 @@ abstract class AbstractKernel implements KernelInterface
         $this->booted = true;
     }
 
-    public function handle(string $method, string $path): string
+    public function handle(Request $request): Response
     {
-        $this->boot();
+        try {
+            $this->boot();
 
-        $match = $this->getContainer()->get(RoutingInterface::class)->match($method, $path);
+            $match = $this->getContainer()->get(RoutingInterface::class)->match($request->getMethod(), $request->getPath());
 
-        return $this->getContainer()->get(ControllerResolverInterface::class)->dispatch($match->getController(), $match->parameters);
+            $request->attributes->add($match->parameters);
+            $request->attributes->set('_route', $match->getName());
+            $request->attributes->set('_controller', $match->getController());
+
+            $response = $this->getContainer()->get(ControllerResolverInterface::class)->dispatch($match->getController(), $request, $match->parameters);
+        } catch (Throwable $exception) {
+            $response = $this->handleException($exception, $request);
+        }
+
+        return $response->prepare($request);
     }
 
     public function run(): void
     {
-        $method = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
-        $path = (string) (parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH) ?: '/');
-
-        try {
-            $content = $this->handle($method, $path);
-            $status = 200;
-        } catch (Throwable $exception) {
-            $manager = $this->container !== null && $this->container->has(ExceptionManager::class)
-                ? $this->container->get(ExceptionManager::class)
-                : new ExceptionManager($this->debug);
-
-            $status = $manager->getStatusCode($exception);
-            $content = $manager->render($exception);
-        }
-
-        if (!headers_sent()) {
-            http_response_code($status);
-            header('Content-Type: text/html; charset=UTF-8');
-        }
-
-        if ($method !== 'HEAD') {
-            echo $content;
-        }
+        $this->handle(Request::fromGlobals())->send();
     }
 
     public function getContainer(): ContainerInterface
@@ -168,6 +162,22 @@ abstract class AbstractKernel implements KernelInterface
         ];
     }
 
+    protected function handleException(Throwable $exception, Request $request): Response
+    {
+        $manager = $this->container !== null && $this->container->has(ExceptionManager::class)
+            ? $this->container->get(ExceptionManager::class)
+            : new ExceptionManager($this->debug);
+
+        $status = $manager->getStatusCode($exception);
+        $headers = $manager->getHeaders($exception);
+
+        if ($request->wantsJson() || $request->isJson()) {
+            return new JsonResponse($manager->renderJson($exception), $status, $headers);
+        }
+
+        return new Response($manager->render($exception), $status, $headers);
+    }
+
     protected function providers(): iterable
     {
         return [];
@@ -180,9 +190,12 @@ abstract class AbstractKernel implements KernelInterface
             KernelProvider::class,
             ExceptionProvider::class,
             YamlProvider::class,
+            HttpProvider::class,
             RoutingProvider::class,
             ViewProvider::class,
             ControllerProvider::class,
+            InstallerProvider::class,
+            ConsoleProvider::class,
         ];
     }
 
