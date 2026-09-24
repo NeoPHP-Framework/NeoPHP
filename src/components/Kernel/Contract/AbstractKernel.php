@@ -26,6 +26,8 @@ use NeoPHP\Component\Kernel\Exception\KernelException;
 use NeoPHP\Component\Kernel\Provider\KernelProvider;
 use NeoPHP\Component\Logger\Contract\LoggerManagerInterface;
 use NeoPHP\Component\Logger\Provider\LoggerProvider;
+use NeoPHP\Component\Middleware\Contract\MiddlewareManagerInterface;
+use NeoPHP\Component\Middleware\Provider\MiddlewareProvider;
 use NeoPHP\Component\Routing\Contract\RoutingInterface;
 use NeoPHP\Component\Routing\Provider\RoutingProvider;
 use NeoPHP\Component\Session\Provider\SessionProvider;
@@ -118,13 +120,8 @@ abstract class AbstractKernel implements KernelInterface
             $this->boot();
             $this->getContainer()->instance(Request::class, $request);
 
-            $match = $this->getContainer()->get(RoutingInterface::class)->match($request->getMethod(), $request->getPath());
-
-            $request->attributes->add($match->parameters);
-            $request->attributes->set('_route', $match->getName());
-            $request->attributes->set('_controller', $match->getController());
-
-            $response = $this->getContainer()->get(ControllerResolverInterface::class)->dispatch($match->getController(), $request, $match->parameters);
+            $middlewares = $this->getContainer()->get(MiddlewareManagerInterface::class);
+            $response = $middlewares->handle($request, $middlewares->getGlobal(), fn (Request $request): Response => $this->dispatch($request));
         } catch (Throwable $exception) {
             $response = $this->handleException($exception, $request);
         }
@@ -210,6 +207,27 @@ abstract class AbstractKernel implements KernelInterface
         ];
     }
 
+    protected function dispatch(Request $request): Response
+    {
+        $container = $this->getContainer();
+        $container->instance(Request::class, $request);
+
+        $match = $container->get(RoutingInterface::class)->match($request->getMethod(), $request->getPath());
+
+        $request->attributes->add($match->parameters);
+        $request->attributes->set('_route', $match->getName());
+        $request->attributes->set('_controller', $match->getController());
+
+        $middlewares = $container->get(MiddlewareManagerInterface::class);
+        $routeMiddlewares = $middlewares->forController($match->getController(), (array) $match->route->getOption('middlewares', []));
+
+        return $middlewares->handle($request, $routeMiddlewares, static function (Request $request) use ($container, $match): Response {
+            $container->instance(Request::class, $request);
+
+            return $container->get(ControllerResolverInterface::class)->dispatch($match->getController(), $request, $match->parameters);
+        });
+    }
+
     protected function terminate(Request $request, Response $response): void
     {
         if ($this->container === null || !$this->container->bound(TerminableInterface::TERMINABLES_ID)) {
@@ -285,6 +303,7 @@ abstract class AbstractKernel implements KernelInterface
             ConfigProvider::class,
             LoggerProvider::class,
             HttpProvider::class,
+            MiddlewareProvider::class,
             RoutingProvider::class,
             CookieProvider::class,
             SessionProvider::class,
