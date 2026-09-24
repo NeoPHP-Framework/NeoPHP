@@ -1,0 +1,38 @@
+<?php
+
+declare(strict_types=1);
+
+namespace NeoPHP\Component\View\Provider;
+
+use NeoPHP\Component\Container\Contract\AbstractProvider;
+use NeoPHP\Component\Container\Contract\ContainerInterface;
+use NeoPHP\Component\Routing\Contract\RoutingInterface;
+use NeoPHP\Component\View\Contract\ViewInterface;
+use NeoPHP\Component\View\ViewManager;
+
+class ViewProvider extends AbstractProvider
+{
+    public function register(ContainerInterface $container): void
+    {
+        $container->singleton(ViewInterface::class, static function (ContainerInterface $container): ViewInterface {
+            $templatesDir = $container->has('kernel.templates_dir')
+                ? (string) $container->get('kernel.templates_dir')
+                : getcwd() . DIRECTORY_SEPARATOR . 'templates';
+
+            return new ViewManager([$templatesDir]);
+        });
+
+        $container->alias(ViewManager::class, ViewInterface::class);
+    }
+
+    public function boot(ContainerInterface $container): void
+    {
+        $view = $container->get(ViewInterface::class);
+
+        $view->addHelper('asset', static fn (string $path): string => '/' . ltrim($path, '/'));
+
+        if ($container->has(RoutingInterface::class)) {
+            $view->addHelper('path', static fn (string $name, array $parameters = []): string => $container->get(RoutingInterface::class)->generate($name, $parameters));
+        }
+    }
+}
