@@ -4,14 +4,17 @@ declare(strict_types=1);
 
 namespace NeoPHP\Component\Routing\Cache;
 
-use NeoPHP\Component\Routing\Exception\RoutingException;
+use NeoPHP\Component\Kernel\Cache\ResourceCache;
 use NeoPHP\Component\Routing\Route\Route;
 use NeoPHP\Component\Routing\Route\RouteCollection;
 
 class RouteCache
 {
+    protected ResourceCache $cache;
+
     public function __construct(protected string $file, protected bool $debug = false)
     {
+        $this->cache = new ResourceCache($file, $debug);
     }
 
     public function getFile(): string
@@ -21,62 +24,26 @@ class RouteCache
 
     public function load(callable $builder): RouteCollection
     {
-        $cached = $this->read();
+        $build = fn (): array => $this->build($builder);
+        $data = $this->cache->load($build);
 
-        if ($cached !== null && (!$this->debug || $this->isFresh((array) ($cached['resources'] ?? [])))) {
-            return $this->hydrate((array) ($cached['routes'] ?? []));
+        if (!isset($data['routes'])) {
+            $this->cache->clear();
+            $data = $this->cache->load($build);
         }
 
-        [$routes, $resources] = $builder();
-        $this->write($routes, $resources);
-
-        return $routes;
+        return $this->hydrate((array) ($data['routes'] ?? []));
     }
 
     public function clear(): void
     {
-        if (is_file($this->file)) {
-            unlink($this->file);
-        }
+        $this->cache->clear();
     }
 
-    protected function read(): ?array
+    protected function build(callable $builder): array
     {
-        if (!is_file($this->file)) {
-            return null;
-        }
-
-        $data = @include $this->file;
-
-        return is_array($data) ? $data : null;
-    }
-
-    protected function isFresh(array $resources): bool
-    {
-        foreach ($resources as $path => $time) {
-            if (!file_exists((string) $path) || (int) filemtime((string) $path) !== (int) $time) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    protected function hydrate(array $routes): RouteCollection
-    {
-        $collection = new RouteCollection();
-
-        foreach ($routes as $data) {
-            $route = new Route($data[0], $data[1], $data[2], $data[3], $data[4], $data[5], $data[6]);
-            $collection->add($route->setSource((string) $data[7]));
-        }
-
-        return $collection;
-    }
-
-    protected function write(RouteCollection $routes, array $resources): void
-    {
-        $data = ['resources' => $resources, 'routes' => []];
+        [$routes, $resources] = $builder();
+        $data = ['routes' => []];
 
         foreach ($routes as $route) {
             $data['routes'][] = [
@@ -91,22 +58,18 @@ class RouteCache
             ];
         }
 
-        $directory = dirname($this->file);
+        return [$data, $resources];
+    }
 
-        if (!is_dir($directory) && !mkdir($directory, 0777, true) && !is_dir($directory)) {
-            throw new RoutingException(sprintf('Unable to create the cache directory "%s".', $directory));
+    protected function hydrate(array $routes): RouteCollection
+    {
+        $collection = new RouteCollection();
+
+        foreach ($routes as $data) {
+            $route = new Route($data[0], $data[1], $data[2], $data[3], $data[4], $data[5], $data[6]);
+            $collection->add($route->setSource((string) $data[7]));
         }
 
-        $temporary = $this->file . '.' . uniqid('', true) . '.tmp';
-
-        if (file_put_contents($temporary, '<?php return ' . var_export($data, true) . ";\n") === false || !rename($temporary, $this->file)) {
-            @unlink($temporary);
-
-            throw new RoutingException(sprintf('Unable to write the routes cache "%s".', $this->file));
-        }
-
-        if (function_exists('opcache_invalidate')) {
-            @opcache_invalidate($this->file, true);
-        }
+        return $collection;
     }
 }
