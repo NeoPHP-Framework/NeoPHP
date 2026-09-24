@@ -14,8 +14,10 @@ use NeoPHP\Component\Container\Contract\ProviderInterface;
 use NeoPHP\Component\Container\Provider\ContainerProvider;
 use NeoPHP\Component\Controller\Contract\ControllerResolverInterface;
 use NeoPHP\Component\Controller\Provider\ControllerProvider;
+use NeoPHP\Component\Cookie\Provider\CookieProvider;
 use NeoPHP\Component\Exception\ExceptionManager;
 use NeoPHP\Component\Exception\Provider\ExceptionProvider;
+use NeoPHP\Component\Flash\Provider\FlashProvider;
 use NeoPHP\Component\Http\Provider\HttpProvider;
 use NeoPHP\Component\Http\Request\Request;
 use NeoPHP\Component\Http\Response\JsonResponse;
@@ -26,6 +28,7 @@ use NeoPHP\Component\Logger\Contract\LoggerManagerInterface;
 use NeoPHP\Component\Logger\Provider\LoggerProvider;
 use NeoPHP\Component\Routing\Contract\RoutingInterface;
 use NeoPHP\Component\Routing\Provider\RoutingProvider;
+use NeoPHP\Component\Session\Provider\SessionProvider;
 use NeoPHP\Component\View\Provider\ViewProvider;
 use NeoPHP\Package\Dotenv\DotenvManager;
 use NeoPHP\Package\Dotenv\Provider\DotenvProvider;
@@ -113,6 +116,7 @@ abstract class AbstractKernel implements KernelInterface
     {
         try {
             $this->boot();
+            $this->getContainer()->instance(Request::class, $request);
 
             $match = $this->getContainer()->get(RoutingInterface::class)->match($request->getMethod(), $request->getPath());
 
@@ -121,6 +125,12 @@ abstract class AbstractKernel implements KernelInterface
             $request->attributes->set('_controller', $match->getController());
 
             $response = $this->getContainer()->get(ControllerResolverInterface::class)->dispatch($match->getController(), $request, $match->parameters);
+        } catch (Throwable $exception) {
+            $response = $this->handleException($exception, $request);
+        }
+
+        try {
+            $this->terminate($request, $response);
         } catch (Throwable $exception) {
             $response = $this->handleException($exception, $request);
         }
@@ -200,6 +210,25 @@ abstract class AbstractKernel implements KernelInterface
         ];
     }
 
+    protected function terminate(Request $request, Response $response): void
+    {
+        if ($this->container === null || !$this->container->bound(TerminableInterface::TERMINABLES_ID)) {
+            return;
+        }
+
+        foreach ((array) $this->container->get(TerminableInterface::TERMINABLES_ID) as $id) {
+            if (!$this->container->resolved((string) $id)) {
+                continue;
+            }
+
+            $service = $this->container->get((string) $id);
+
+            if ($service instanceof TerminableInterface) {
+                $service->terminate($request, $response);
+            }
+        }
+    }
+
     protected function handleException(Throwable $exception, Request $request): Response
     {
         $manager = $this->container !== null && $this->container->has(ExceptionManager::class)
@@ -257,6 +286,9 @@ abstract class AbstractKernel implements KernelInterface
             LoggerProvider::class,
             HttpProvider::class,
             RoutingProvider::class,
+            CookieProvider::class,
+            SessionProvider::class,
+            FlashProvider::class,
             AssetProvider::class,
             ViewProvider::class,
             ControllerProvider::class,
