@@ -16,6 +16,7 @@ class Route
         public array $requirements = [],
         public array $defaults = [],
         public array $options = [],
+        public array $middlewares = [],
     ) {
     }
 

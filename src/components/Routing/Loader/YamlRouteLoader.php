@@ -11,8 +11,8 @@ use NeoPHP\Package\Yaml\Contract\YamlInterface;
 
 class YamlRouteLoader
 {
-    private const ROUTE_KEYS = ['path', 'controller', 'methods', 'requirements', 'defaults', 'options'];
-    private const IMPORT_KEYS = ['resource', 'type', 'prefix', 'name_prefix', 'requirements', 'defaults', 'options', 'methods'];
+    private const ROUTE_KEYS = ['path', 'controller', 'methods', 'requirements', 'defaults', 'options', 'middlewares'];
+    private const IMPORT_KEYS = ['resource', 'type', 'prefix', 'name_prefix', 'requirements', 'defaults', 'options', 'methods', 'middlewares'];
     private const TYPES = ['yaml', 'attribute'];
 
     private array $loading = [];
@@ -111,7 +111,7 @@ class YamlRouteLoader
             $this->methods($definition['methods'] ?? []),
             $this->map($definition['requirements'] ?? [], 'requirements', $name, $file),
             $this->map($definition['defaults'] ?? [], 'defaults', $name, $file),
-            $this->map($definition['options'] ?? [], 'options', $name, $file),
+            $this->withMiddlewares($this->map($definition['options'] ?? [], 'options', $name, $file), $this->middlewares($definition['middlewares'] ?? [])),
         );
 
         return $route->setSource($file . ' (' . $name . ')');
@@ -131,6 +131,7 @@ class YamlRouteLoader
         $defaults = $this->map($definition['defaults'] ?? [], 'defaults', $name, $file);
         $options = $this->map($definition['options'] ?? [], 'options', $name, $file);
         $methods = $this->methods($definition['methods'] ?? []);
+        $middlewares = $this->middlewares($definition['middlewares'] ?? []);
 
         $collection = new RouteCollection();
 
@@ -142,7 +143,7 @@ class YamlRouteLoader
                 $route->getMethods() !== [] ? $route->getMethods() : $methods,
                 $route->getRequirements() + $requirements,
                 $route->getDefaults() + $defaults,
-                $route->getOptions() + $options,
+                $this->withMiddlewares($route->getOptions() + $options, $middlewares, true),
             ))->setSource($route->getSource()));
         }
 
@@ -166,6 +167,27 @@ class YamlRouteLoader
         $this->resources += $loader->getResources();
 
         return $routes;
+    }
+
+    private function middlewares(mixed $middlewares): array
+    {
+        if (is_string($middlewares)) {
+            $middlewares = preg_split('/\s*[|,]\s*/', trim($middlewares), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        }
+
+        return array_values(array_map('strval', (array) $middlewares));
+    }
+
+    private function withMiddlewares(array $options, array $middlewares, bool $prepend = false): array
+    {
+        if ($middlewares === []) {
+            return $options;
+        }
+
+        $current = (array) ($options['middlewares'] ?? []);
+        $options['middlewares'] = array_values(array_unique($prepend ? [...$middlewares, ...$current] : [...$current, ...$middlewares]));
+
+        return $options;
     }
 
     private function methods(mixed $methods): array

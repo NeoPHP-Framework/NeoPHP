@@ -107,10 +107,22 @@ class AttributeRouteLoader
             $attribute->getMethods() !== [] ? $attribute->getMethods() : ($global?->getMethods() ?? []),
             array_replace($global?->requirements ?? [], $attribute->requirements),
             array_replace($global?->defaults ?? [], $attribute->defaults),
-            array_replace($global?->options ?? [], $attribute->options),
+            $this->options($global, $attribute),
         );
 
         return $route->setSource($class->getName() . '::' . $method->getName() . '()');
+    }
+
+    protected function options(?RouteAttribute $global, RouteAttribute $attribute): array
+    {
+        $options = array_replace($global?->options ?? [], $attribute->options);
+        $middlewares = [...($global?->middlewares ?? []), ...$attribute->middlewares];
+
+        if ($middlewares !== []) {
+            $options['middlewares'] = array_values(array_unique([...(array) ($options['middlewares'] ?? []), ...$middlewares]));
+        }
+
+        return $options;
     }
 
     protected function defaultName(string $class, string $method, bool $prefixed = false): string
