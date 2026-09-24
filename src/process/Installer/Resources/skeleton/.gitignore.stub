@@ -1,0 +1,8 @@
+/vendor/
+/public/builds/
+.env.local
+.env.*.local
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
