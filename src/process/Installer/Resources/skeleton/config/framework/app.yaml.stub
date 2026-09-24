@@ -2,3 +2,21 @@ name: '%env(APP_NAME)%'
 environment: '%kernel.environment%'
 debug: '%kernel.debug%'
 root_path: '%kernel.root_path%'
+secret: '%env(APP_SECRET)%'
+
+session:
+  name: NEOSESSID
+  lifetime: 0
+  gc_maxlifetime: 1440
+  save_path: '%kernel.root_path%/var/sessions'
+
+cookie:
+  lifetime: 0
+  path: /
+  domain: ~
+  secure: auto
+  httponly: true
+  samesite: Lax
+
+flash:
+  key: _flashes

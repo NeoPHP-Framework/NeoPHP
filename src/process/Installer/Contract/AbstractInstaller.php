@@ -30,6 +30,7 @@ abstract class AbstractInstaller implements InstallerInterface
         'tests',
         'var/cache',
         'var/log',
+        'var/sessions',
     ];
 
     public function __construct(protected string $skeletonDir)
@@ -78,6 +79,7 @@ abstract class AbstractInstaller implements InstallerInterface
         }
 
         $report = [];
+        $variables = $this->variables();
 
         foreach ($this->getDirectories() as $directory) {
             $path = $projectDir . '/' . $directory;
@@ -100,7 +102,7 @@ abstract class AbstractInstaller implements InstallerInterface
 
             $this->makeDirectory(dirname($target));
 
-            if (!copy($stub, $target)) {
+            if (file_put_contents($target, strtr((string) file_get_contents($stub), $variables)) === false) {
                 throw new InstallerException('Unable to write the file "{file}".', 0, null, ['file' => $target]);
             }
 
@@ -114,6 +116,13 @@ abstract class AbstractInstaller implements InstallerInterface
         $report['composer.json'] = $this->configureComposer($projectDir . '/composer.json');
 
         return $report;
+    }
+
+    protected function variables(): array
+    {
+        return [
+            '{{ app_secret }}' => bin2hex(random_bytes(32)),
+        ];
     }
 
     protected function configureComposer(string $file): string
