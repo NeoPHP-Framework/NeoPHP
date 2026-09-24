@@ -1,4 +1,4 @@
 name: '%env(APP_NAME)%'
 environment: '%kernel.environment%'
 debug: '%kernel.debug%'
-root_path: '%kernel.root_path%
+root_path: '%kernel.root_path%'

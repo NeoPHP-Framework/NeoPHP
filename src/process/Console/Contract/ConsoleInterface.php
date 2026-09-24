@@ -12,5 +12,7 @@ interface ConsoleInterface
 
     public function all(): array;
 
+    public function find(string $name): ?CommandInterface;
+
     public function run(array $argv, ?Output $output = null): int;
 }

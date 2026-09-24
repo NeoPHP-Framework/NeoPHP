@@ -8,6 +8,7 @@ use NeoPHP\Component\Container\Contract\ContainerInterface;
 use NeoPHP\Process\Console\Exception\ConsoleException;
 use NeoPHP\Process\Console\IO\Input;
 use NeoPHP\Process\Console\IO\Output;
+use ReflectionClass;
 use Throwable;
 
 abstract class AbstractConsole implements ConsoleInterface
@@ -37,17 +38,7 @@ abstract class AbstractConsole implements ConsoleInterface
         $resolved = [];
 
         foreach ($this->commands as $command) {
-            if (is_string($command)) {
-                $command = $this->container !== null ? $this->container->get($command) : new $command();
-            }
-
-            if (!$command instanceof CommandInterface) {
-                throw new ConsoleException('"{command}" must implement {interface}.', 0, null, [
-                    'command' => get_debug_type($command),
-                    'interface' => CommandInterface::class,
-                ]);
-            }
-
+            $command = $this->instantiate($command);
             $resolved[$command->getName()] = $command;
         }
 
@@ -62,29 +53,71 @@ abstract class AbstractConsole implements ConsoleInterface
         $tokens = array_values(array_slice($argv, 1));
         $name = $tokens[0] ?? 'list';
 
-        if (in_array($name, ['list', 'help', '--help', '-h'], true)) {
-            $this->renderList($output);
-
-            return CommandInterface::SUCCESS;
-        }
-
         try {
-            $commands = $this->all();
+            if (in_array($name, ['list', 'help', '--help', '-h'], true)) {
+                $this->renderList($output);
 
-            if (!isset($commands[$name])) {
+                return CommandInterface::SUCCESS;
+            }
+
+            $command = $this->find($name);
+
+            if ($command === null) {
                 $output->writeln(sprintf('<error>Command "%s" is not defined.</error>', $name));
                 $this->renderList($output);
 
                 return CommandInterface::INVALID;
             }
 
-            return $commands[$name]->execute(Input::fromTokens(array_slice($tokens, 1)), $output);
+            return $command->execute(Input::fromTokens(array_slice($tokens, 1)), $output);
         } catch (Throwable $exception) {
             $output->writeln(sprintf('<error>[%s] %s</error>', $exception::class, $exception->getMessage()));
             $output->writeln(sprintf('<muted>%s:%d</muted>', $exception->getFile(), $exception->getLine()));
 
             return CommandInterface::FAILURE;
         }
+    }
+
+    public function find(string $name): ?CommandInterface
+    {
+        foreach ($this->commands as $command) {
+            if ($this->nameOf($command) === $name) {
+                return $this->instantiate($command);
+            }
+        }
+
+        return null;
+    }
+
+    protected function nameOf(CommandInterface|string $command): string
+    {
+        if ($command instanceof CommandInterface) {
+            return $command->getName();
+        }
+
+        if (!class_exists($command)) {
+            throw new ConsoleException('The command class "{command}" does not exist.', 0, null, ['command' => $command]);
+        }
+
+        $name = (new ReflectionClass($command))->getDefaultProperties()['name'] ?? '';
+
+        return is_string($name) && $name !== '' ? $name : $this->instantiate($command)->getName();
+    }
+
+    protected function instantiate(CommandInterface|string $command): CommandInterface
+    {
+        if (is_string($command)) {
+            $command = $this->container !== null ? $this->container->get($command) : new $command();
+        }
+
+        if (!$command instanceof CommandInterface) {
+            throw new ConsoleException('"{command}" must implement {interface}.', 0, null, [
+                'command' => get_debug_type($command),
+                'interface' => CommandInterface::class,
+            ]);
+        }
+
+        return $command;
     }
 
     protected function renderList(Output $output): void
@@ -95,13 +128,22 @@ abstract class AbstractConsole implements ConsoleInterface
         $output->writeln();
         $output->writeln('<comment>Available commands:</comment>');
 
-        $commands = $this->all();
-        $width = max(4, ...array_map('strlen', array_keys($commands)));
+        $rows = ['list' => 'Lists the available commands'];
 
-        $output->writeln(sprintf('  <info>%s</info>  %s', str_pad('list', $width), 'Lists the available commands'));
+        foreach ($this->commands as $command) {
+            try {
+                $instance = $this->instantiate($command);
+                $rows[$instance->getName()] = $instance->getDescription();
+            } catch (Throwable $exception) {
+                $rows[$this->nameOf($command)] = sprintf('<error>unavailable: %s</error>', $exception->getMessage());
+            }
+        }
 
-        foreach ($commands as $name => $command) {
-            $output->writeln(sprintf('  <info>%s</info>  %s', str_pad($name, $width), $command->getDescription()));
+        ksort($rows);
+        $width = max(array_map('strlen', array_keys($rows)));
+
+        foreach ($rows as $name => $description) {
+            $output->writeln(sprintf('  <info>%s</info>  %s', str_pad($name, $width), $description));
         }
     }
 }
