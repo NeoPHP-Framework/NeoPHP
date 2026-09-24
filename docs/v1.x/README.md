@@ -2,66 +2,70 @@
 
 ## Overview
 
-NeoPHP v1.x is the base of the framework. It has no dependency other than PHP 8.2. It lets an application:
+NeoPHP v1.x is the base of the framework. It has no dependency other than PHP 8.2. It provides:
 
-- define its routes in `config/routes.yaml`
-- read YAML files
-- render PHP views stored in `templates/`
+- routes defined in `config/routes.yaml`
+- a YAML parser
+- PHP views stored in `templates/`
+- an HTTP layer (`Request`, `Response`, `JsonResponse`, `RedirectResponse`)
+- a console (`php vendor/bin/neo`) that generates the project files
 
 ## Installation (development)
 
-Until the framework is published on Packagist, require it through a Composer path repository (symlink):
+Until the framework is published on Packagist, require it through a Composer path repository (symlink). Create a folder next to the framework with this `composer.json`:
 
 ```json
 {
+    "name": "neophp/test",
+    "type": "project",
     "repositories": [
         { "type": "path", "url": "../neophp", "options": { "symlink": true } }
     ],
     "require": {
+        "php": ">=8.2",
         "neophp/framework": "*@dev"
-    },
-    "autoload": {
-        "psr-4": {
-            "App\\": "src/",
-            "Neo\\": "neo/"
-        }
     },
     "minimum-stability": "dev",
     "prefer-stable": true
 }
 ```
 
-## Application files
+Then:
 
-`neo/Kernel.php`
-
-```php
-<?php
-
-declare(strict_types=1);
-
-namespace Neo;
-
-use NeoPHP\Component\Kernel\KernelManager;
-
-class Kernel extends KernelManager
-{
-}
+```bash
+composer install
+php vendor/bin/neo install
+composer dump-autoload
+php vendor/bin/neo serve
 ```
 
-`public/index.php`
+`neo install` generates the project files and adds the `App\` autoload to `composer.json`. Existing files are never overwritten, unless `--force` is given.
 
-```php
-<?php
-
-declare(strict_types=1);
-
-use Neo\Kernel;
-
-require dirname(__DIR__) . '/vendor/autoload.php';
-
-(new Kernel())->run();
 ```
+.gitignore
+assets/
+config/routes.yaml
+config/framework/
+config/packages/
+public/.htaccess
+public/index.php
+public/builds/
+src/Kernel.php
+src/Controller/HomeController.php
+src/Command/  src/Event/  src/Listener/  src/Middleware/  src/Service/
+templates/base.php
+templates/home/index.php
+tests/
+```
+
+## Console
+
+| Command | Description |
+|---|---|
+| `php vendor/bin/neo` | lists the commands |
+| `php vendor/bin/neo install [--force]` | generates the project files |
+| `php vendor/bin/neo serve [--host=127.0.0.1] [--port=8000]` | starts the PHP development server |
+| `php vendor/bin/neo route:list` | lists the routes |
 
 ## Routes
 
@@ -111,23 +115,72 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use NeoPHP\Component\Controller\Contract\AbstractController;
+use NeoPHP\Component\Http\Request\Request;
+use NeoPHP\Component\Http\Response\Response;
 
 class UserController extends AbstractController
 {
-    public function show(int $id): string
+    public function show(int $id, Request $request): Response
     {
         if ($id > 100) {
             throw $this->createNotFoundException('User {id} not found.', ['id' => $id]);
         }
 
-        return $this->render('user/show', ['id' => $id]);
+        return $this->render('user/show', ['id' => $id, 'tab' => $request->query->get('tab')]);
     }
 }
 ```
 
-Controller arguments are resolved from the route parameters (cast to `int`, `float`, `bool` or `string`), then from the container (class type-hints), then from default values. A controller returns a string.
+Controller arguments are resolved from, in order: the `Request` (type-hint), the route parameters (cast to `int`, `float`, `bool` or `string`), the request attributes, the container (class type-hints), the default values.
 
-`AbstractController` shortcuts: `render()`, `generateUrl()`, `createNotFoundException()`, `get()`, `has()`.
+A controller returns a `Response`. For convenience, a `string` becomes an HTML response, an `array` a JSON response and `null` a 204 response.
+
+`AbstractController` shortcuts:
+
+| Method | Returns |
+|---|---|
+| `render($template, $parameters, $status, $headers)` | `Response` |
+| `renderView($template, $parameters)` | `string` |
+| `json($data, $status, $headers)` | `JsonResponse` |
+| `redirect($url, $status)` | `RedirectResponse` |
+| `redirectToRoute($route, $parameters, $status)` | `RedirectResponse` |
+| `generateUrl($route, $parameters)` | `string` |
+| `createNotFoundException($message, $context)` | `NotFoundHttpException` (404) |
+| `createAccessDeniedException($message, $context)` | `AccessDeniedHttpException` (403) |
+| `get($id)` / `has($id)` | container access |
+
+## HTTP
+
+`Request`
+
+| Property / method | Description |
+|---|---|
+| `$request->query` | GET parameters |
+| `$request->request` | POST parameters (and JSON body for POST, PUT, PATCH, DELETE) |
+| `$request->attributes` | route parameters, `_route`, `_controller` |
+| `$request->cookies`, `$request->files`, `$request->server`, `$request->headers` | cookies, uploaded files, server, headers |
+| `getMethod()` | HTTP method (a POST form can send `_method` with `PUT`, `PATCH` or `DELETE`) |
+| `getPath()`, `getUri()`, `getHost()`, `getScheme()`, `isSecure()` | URL information |
+| `getContent()`, `toArray()` | raw body, JSON body |
+| `isJson()`, `wantsJson()`, `isXmlHttpRequest()` | content negotiation |
+
+Every bag provides `all()`, `get()`, `has()`, `set()`, `remove()`, `getString()`, `getInt()`, `getBoolean()`.
+
+`Response`
+
+```php
+$response = new Response('<h1>Hello</h1>', 200, ['X-Custom' => 'value']);
+$response->setStatusCode(201);
+$response->setHeader('Cache-Control', 'no-cache');
+$response->setCookie('theme', 'dark', time() + 3600);
+
+new JsonResponse(['ok' => true]);
+new RedirectResponse('/login');
+```
+
+HTTP exceptions (all extending `FrameworkException`): `HttpException($status, $message, $headers)`, `NotFoundHttpException`, `AccessDeniedHttpException`, `BadRequestHttpException`.
+
+Errors are rendered as HTML, or as JSON when the request sends `Accept: application/json`.
 
 ## Views
 
@@ -194,7 +247,7 @@ $exception->getPreviousExceptions();
 $exception->toArray();
 ```
 
-`{placeholders}` in the message are replaced by the context values. The status code (500 by default) is used for the HTTP response: routing exceptions use 404 and 405.
+`{placeholders}` in the message are replaced by the context values. The status code (500 by default) and the headers (`getHeaders()`) are used for the HTTP response: routing exceptions use 404 and 405 (with the `Allow` header).
 
 ## Environment
 
@@ -211,11 +264,15 @@ src/
 │   ├── Container      dependency injection container, autowiring, providers
 │   ├── Controller     controller resolution and AbstractController
 │   ├── Exception      FrameworkException and error pages
+│   ├── Http           Request, Response, JsonResponse, RedirectResponse
 │   ├── Kernel         boot and request lifecycle
 │   ├── Routing        YAML routes, matching, URL generation
 │   └── View           PHP templates, layouts, sections, helpers
-└── packages/
-    └── Yaml           YAML parser
+├── packages/
+│   └── Yaml           YAML parser
+└── process/
+    ├── Console        neo command line (install, serve, route:list)
+    └── Installer      project skeleton generation
 ```
 
 Each feature follows the same layout:
@@ -230,3 +287,5 @@ Feature/Contract/AbstractFeature.php
 ## Changes
 
 - Initial version: routes in YAML, YAML parser, PHP views, controllers, container and centralized exceptions.
+- HTTP layer: `Request`, `Response`, `JsonResponse`, `RedirectResponse`, HTTP exceptions, JSON errors.
+- Console `neo` with the `install`, `serve` and `route:list` commands.
