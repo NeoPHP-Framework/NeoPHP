@@ -1,0 +1,18 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Controller;
+
+use NeoPHP\Component\Controller\Contract\AbstractController;
+use NeoPHP\Component\Http\Response\Response;
+
+class HomeController extends AbstractController
+{
+    public function index(): Response
+    {
+        return $this->render('home/index', [
+            'title' => 'Welcome to NeoPHP',
+        ]);
+    }
+}
