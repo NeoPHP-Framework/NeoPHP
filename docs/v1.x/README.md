@@ -22,7 +22,13 @@ Until the framework is published on Packagist, require it through a Composer pat
     "name": "neophp/test",
     "type": "project",
     "repositories": [
-        { "type": "path", "url": "../neophp", "options": { "symlink": true } }
+        { 
+            "type": "path", 
+            "url": "../neophp", 
+            "options": { 
+                "symlink": true
+            }
+        }
     ],
     "require": {
         "php": ">=8.2",
@@ -96,24 +102,24 @@ Each feature can ship its own commands in `Feature/Helper/Console/`: they are di
 
 ```yaml
 home:
-  path: /
-  controller: App\Controller\HomeController::index
-  methods: [GET]
+    path: /
+    controller: App\Controller\HomeController::index
+    methods: [GET]
 
 user_show:
-  path: /user/{id}
-  controller: App\Controller\UserController::show
-  requirements: { id: '\d+' }
+    path: /user/{id}
+    controller: App\Controller\UserController::show
+    requirements: { id: '\d+' }
 
 page:
-  path: /page/{slug}
-  controller: App\Controller\PageController::show
-  defaults: { slug: home }
+    path: /page/{slug}
+    controller: App\Controller\PageController::show
+    defaults: { slug: home }
 
 admin:
-  resource: routes/admin.yaml
-  prefix: /admin
-  name_prefix: admin_
+    resource: routes/admin.yaml
+    prefix: /admin
+    name_prefix: admin_
 ```
 
 | Key | Description |
@@ -171,6 +177,53 @@ A controller returns a `Response`. For convenience, a `string` becomes an HTML r
 | `createNotFoundException($message, $context)` | `NotFoundHttpException` (404) |
 | `createAccessDeniedException($message, $context)` | `AccessDeniedHttpException` (403) |
 | `get($id)` / `has($id)` | container access |
+
+`AbstractController` has no method of its own: it is made of traits, and each feature ships its trait in `Feature/Helper/Controller/`:
+
+| Trait | Methods |
+|---|---|
+| `Container/Helper/Controller/ContainerController` | `setContainer()`, `get()`, `has()` |
+| `Http/Helper/Controller/HttpController` | `json()`, `redirect()`, `createNotFoundException()`, `createAccessDeniedException()` |
+| `Routing/Helper/Controller/RoutingController` | `generateUrl()`, `redirectToRoute()` |
+| `View/Helper/Controller/ViewController` | `render()`, `renderView()` |
+
+```php
+abstract class AbstractController implements ControllerInterface
+{
+    use ContainerController;
+    use HttpController;
+    use RoutingController;
+    use ViewController;
+}
+```
+
+A controller can also pick only the traits it needs. `ContainerController` is required: the other traits get their services through `get()`.
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Controller;
+
+use NeoPHP\Component\Container\Helper\Controller\ContainerController;
+use NeoPHP\Component\Controller\Contract\ControllerInterface;
+use NeoPHP\Component\Http\Helper\Controller\HttpController;
+use NeoPHP\Component\Http\Response\JsonResponse;
+
+class ApiController implements ControllerInterface
+{
+    use ContainerController;
+    use HttpController;
+
+    public function status(): JsonResponse
+    {
+        return $this->json(['ok' => true]);
+    }
+}
+```
+
+An application trait follows the same rule: it declares `abstract protected function get(string $id): mixed;` and uses `$this->get()` to reach its services.
 
 ## HTTP
 
@@ -624,7 +677,7 @@ src/
 │   ├── Asset          asset compilation, hashed builds, manifest
 │   ├── Config         YAML configuration and placeholders
 │   ├── Container      dependency injection container, autowiring, providers
-│   ├── Controller     controller resolution and AbstractController
+│   ├── Controller     controller resolution and AbstractController (made of traits)
 │   ├── Exception      FrameworkException and error pages
 │   ├── Http           Request, Response, JsonResponse, RedirectResponse
 │   ├── Kernel         boot and request lifecycle
@@ -646,6 +699,7 @@ Feature/FeatureManager.php
 Feature/Provider/FeatureProvider.php
 Feature/Contract/FeatureInterface.php
 Feature/Contract/AbstractFeature.php
+Feature/Helper/Controller/FeatureController.php (optional)
 Feature/Helper/View/FeatureViewHelper.php       (optional)
 Feature/Helper/Console/FeatureXxxCommand.php    (optional)
 ```
@@ -660,3 +714,4 @@ Feature/Helper/Console/FeatureXxxCommand.php    (optional)
 - Logger: PSR-3 compatible logger, channels, rotation by size or period, zip/gz archives (v1.1.0).
 - Views: optional Twig engine, engine-agnostic view helpers discovered in each feature `Helper/View/` directory, `config/framework/view.yaml`; the `asset()` helper is removed (v1.2.0).
 - Assets: `assets/` compiled into `public/builds/` with hashed names, `manifest.json`, `asset()` helper, `asset:reload [--minify]` command, commands discovered in `Helper/Console/` (v1.3.0).
+- Controllers: `AbstractController` made of traits shipped by each feature in `Helper/Controller/` (v1.4.0).
