@@ -341,7 +341,80 @@ discount: '10%%'
 | `%any.config.key%` | value of another configuration key |
 | `%%` | a literal `%` |
 
+Only `%env(...)%` and keys containing a dot (`%kernel.root_path%`, `%framework.app.name%`) are placeholders: `%datetime%` or `%type%` are kept as is.
+
 A value made of a single placeholder keeps its type (`'%kernel.debug%'` is a bool). An undefined environment variable or configuration key throws a `ConfigException`.
+
+## Logger
+
+PSR-3 compatible logger (same methods and signatures), without dependency.
+
+```php
+use NeoPHP\Component\Logger\Contract\LoggerInterface;
+use NeoPHP\Component\Logger\LoggerManager;
+
+public function index(LoggerInterface $logger, LoggerManager $loggers): Response
+{
+    $logger->info('User {user} logged in', ['user' => 'neo']);
+    $logger->error('Payment failed', ['exception' => $exception]);
+
+    $loggers->channel('framework')->warning('Cache cleared');
+}
+```
+
+Methods: `emergency()`, `alert()`, `critical()`, `error()`, `warning()`, `notice()`, `info()`, `debug()`, `log($level, ...)`. `{key}` placeholders in the message are replaced by the context values; the context is written as JSON.
+
+`config/framework/logger.yaml`
+
+```yaml
+channels:
+  app:
+    enabled: true
+    extension: log
+  framework:
+    enabled: true
+    extension: log
+    minimum_level: warning
+
+rotation:
+  enabled: true
+  max_files: 30
+  when:
+    filesize: 10M
+    every: day
+
+archive:
+  enabled: true
+  extension: zip
+
+settings:
+  path: '%kernel.root_path%/var/log'
+  format_message: '[%datetime%] %channel%.%type% %message% %context%'
+  date_format: 'Y-m-d H:i:s'
+  timezone: Europe/Paris
+  minimum_level: debug
+  default_channel: app
+```
+
+| Option | Description |
+|---|---|
+| `channels.<name>.enabled` | writes the channel into `<path>/<name>.<extension>` |
+| `channels.<name>.extension` | file extension (`log`, `txt`...) |
+| `channels.<name>.minimum_level` | overrides `settings.minimum_level` for the channel |
+| `channels.<name>.path` | overrides `settings.path` for the channel |
+| `rotation.enabled` | enables the rotation |
+| `rotation.when.filesize` | rotates when the file exceeds a size (`500K`, `10M`, `1G`, bytes, `~` = never) |
+| `rotation.when.every` | rotates every `minute`, `hour`, `day`, `week`, `month`, `year` (`~` = never) |
+| `rotation.max_files` | keeps only the N most recent rotated files |
+| `archive.enabled` / `archive.extension` | compresses rotated files as `zip` (PHP `zip` extension) or `gz` |
+| `settings.format_message` | `%datetime%`, `%channel%`, `%type%` (or `%level%`), `%message%`, `%context%` |
+| `settings.date_format` | PHP date format of `%datetime%` |
+| `settings.timezone` | timezone of the dates (`~` = PHP `date.timezone`) |
+| `settings.minimum_level` | lowest level written: `debug`, `info`, `notice`, `warning`, `error`, `critical`, `alert`, `emergency` |
+| `settings.default_channel` | channel used by `LoggerInterface` (default: first channel) |
+
+Rotated files are named after the period (`app-2026-09-23.log`) or the rotation time (`app-2026-09-24_14-05-12.log`). Uncaught errors (HTTP 500) are written in the `framework` channel when it exists.
+
 ## Architecture
 
 ```
@@ -353,6 +426,7 @@ src/
 │   ├── Exception      FrameworkException and error pages
 │   ├── Http           Request, Response, JsonResponse, RedirectResponse
 │   ├── Kernel         boot and request lifecycle
+│   ├── Logger         PSR-3 logger, channels, rotation, archives
 │   ├── Routing        YAML routes, matching, URL generation
 │   └── View           PHP templates, layouts, sections, helpers
 ├── packages/
@@ -378,3 +452,4 @@ Feature/Contract/AbstractFeature.php
 - Console `neo` with the `install`, `serve` and `route:list` commands.
 - `bin/neo` generated in the project by `neo install`.
 - Configuration: `.env` files, `config/**/*.yaml`, placeholders `%kernel.*%`, `%env(...)%` and `%config.key%`.
+- Logger: PSR-3 compatible logger, channels, rotation by size or period, zip/gz archives (v1.1.0).

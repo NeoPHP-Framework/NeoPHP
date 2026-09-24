@@ -30,5 +30,7 @@ interface KernelInterface
 
     public function isDebug(): bool;
 
+    public function getVersion(): string;
+
     public function getParameters(): array;
 }
