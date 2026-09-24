@@ -1,0 +1,21 @@
+{
+    "name": "neophp/framework",
+    "description": "NeoPHP - an ultra modular PHP framework.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["framework", "neophp", "yaml", "routing"],
+    "require": {
+        "php": ">=8.2"
+    },
+    "autoload": {
+        "psr-4": {
+            "NeoPHP\\Component\\": "src/components/",
+            "NeoPHP\\Package\\": "src/packages/",
+            "NeoPHP\\Process\\": "src/process/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable"
+}
