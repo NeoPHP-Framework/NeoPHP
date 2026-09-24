@@ -45,6 +45,5 @@ class SessionProvider extends AbstractProvider
         });
 
         $container->alias(SessionManager::class, SessionInterface::class);
-        $this->registerTerminable($container, SessionInterface::class);
     }
 }
