@@ -13,19 +13,19 @@ class ClassFinder
 {
     protected array $resources = [];
 
-    public function find(string $path, ?string $contains = null): array
+    public function find(string $path, string|array|null $contains = null): array
     {
         return array_keys($this->map($path, $contains));
     }
 
-    public function map(string $path, ?string $contains = null): array
+    public function map(string $path, string|array|null $contains = null): array
     {
         $classes = [];
 
         foreach ($this->files($path) as $file) {
             $content = (string) file_get_contents($file);
 
-            if ($contains !== null && !str_contains($content, $contains)) {
+            if ($contains !== null && !$this->contains($content, (array) $contains)) {
                 continue;
             }
 
@@ -35,6 +35,17 @@ class ClassFinder
         }
 
         return $classes;
+    }
+
+    protected function contains(string $content, array $needles): bool
+    {
+        foreach ($needles as $needle) {
+            if (str_contains($content, (string) $needle)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function getResources(): array
