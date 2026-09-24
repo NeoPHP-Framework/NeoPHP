@@ -4,17 +4,14 @@ declare(strict_types=1);
 
 namespace NeoPHP\Component\Routing\Loader;
 
-use FilesystemIterator;
+use NeoPHP\Component\Kernel\Discovery\ClassFinder;
 use NeoPHP\Component\Routing\Attribute\Route as RouteAttribute;
 use NeoPHP\Component\Routing\Exception\RoutingException;
 use NeoPHP\Component\Routing\Route\Route;
 use NeoPHP\Component\Routing\Route\RouteCollection;
-use RecursiveDirectoryIterator;
-use RecursiveIteratorIterator;
 use ReflectionAttribute;
 use ReflectionClass;
 use ReflectionMethod;
-use SplFileInfo;
 
 class AttributeRouteLoader
 {
@@ -29,14 +26,15 @@ class AttributeRouteLoader
         }
 
         $collection = new RouteCollection();
+        $finder = new ClassFinder();
 
-        foreach ($this->files($real) as $file) {
-            foreach ($this->classesIn($file) as $class) {
-                foreach ($this->loadClass($class) as $route) {
-                    $this->append($collection, $route);
-                }
+        foreach ($finder->find($real, '#[') as $class) {
+            foreach ($this->loadClass($class) as $route) {
+                $this->append($collection, $route);
             }
         }
+
+        $this->resources += $finder->getResources();
 
         return $collection;
     }
@@ -158,104 +156,5 @@ class AttributeRouteLoader
         }
 
         $collection->add($route);
-    }
-
-    protected function files(string $path): array
-    {
-        if (is_file($path)) {
-            $this->resources[$path] = (int) filemtime($path);
-
-            return [$path];
-        }
-
-        $this->resources[$path] = (int) filemtime($path);
-        $files = [];
-        $iterator = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS),
-            RecursiveIteratorIterator::SELF_FIRST,
-        );
-
-        foreach ($iterator as $file) {
-            if (!$file instanceof SplFileInfo) {
-                continue;
-            }
-
-            if ($file->isDir()) {
-                $this->resources[$file->getPathname()] = (int) $file->getMTime();
-            } elseif ($file->getExtension() === 'php') {
-                $this->resources[$file->getPathname()] = (int) $file->getMTime();
-                $files[] = $file->getPathname();
-            }
-        }
-
-        sort($files);
-
-        return $files;
-    }
-
-    protected function classesIn(string $file): array
-    {
-        $content = (string) file_get_contents($file);
-
-        if (!str_contains($content, '#[')) {
-            return [];
-        }
-
-        $tokens = token_get_all($content);
-        $count = count($tokens);
-        $namespace = '';
-        $classes = [];
-
-        for ($i = 0; $i < $count; $i++) {
-            if (!is_array($tokens[$i])) {
-                continue;
-            }
-
-            if ($tokens[$i][0] === T_NAMESPACE) {
-                $namespace = '';
-
-                for ($j = $i + 1; $j < $count; $j++) {
-                    if ($tokens[$j] === ';' || $tokens[$j] === '{') {
-                        break;
-                    }
-
-                    if (is_array($tokens[$j]) && in_array($tokens[$j][0], [T_STRING, T_NAME_QUALIFIED], true)) {
-                        $namespace .= $tokens[$j][1];
-                    }
-                }
-
-                continue;
-            }
-
-            if ($tokens[$i][0] !== T_CLASS || $this->previousToken($tokens, $i) === T_DOUBLE_COLON || $this->previousToken($tokens, $i) === T_NEW) {
-                continue;
-            }
-
-            for ($j = $i + 1; $j < $count; $j++) {
-                if (is_array($tokens[$j]) && $tokens[$j][0] === T_STRING) {
-                    $classes[] = ltrim($namespace . '\\' . $tokens[$j][1], '\\');
-                    break;
-                }
-
-                if ($tokens[$j] === '{' || $tokens[$j] === '(') {
-                    break;
-                }
-            }
-        }
-
-        return $classes;
-    }
-
-    protected function previousToken(array $tokens, int $index): int|string|null
-    {
-        for ($i = $index - 1; $i >= 0; $i--) {
-            if (is_array($tokens[$i]) && in_array($tokens[$i][0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) {
-                continue;
-            }
-
-            return is_array($tokens[$i]) ? $tokens[$i][0] : $tokens[$i];
-        }
-
-        return null;
     }
 }
