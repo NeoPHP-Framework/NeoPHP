@@ -14,7 +14,7 @@ class ConfigProvider extends AbstractProvider
 {
     public const PARAMETERS_ID = 'kernel.parameters';
 
-    public const EXCLUDED = ['routes.yaml', 'routes.yml', 'routes'];
+    public const EXCLUDED = ['routes.yaml', 'routes.yml', 'routes', 'services.yaml', 'services.yml'];
 
     public function register(ContainerInterface $container): void
     {
@@ -31,5 +31,6 @@ class ConfigProvider extends AbstractProvider
         });
 
         $container->alias(ConfigManager::class, ConfigInterface::class);
+        $container->alias('config', ConfigInterface::class);
     }
 }
