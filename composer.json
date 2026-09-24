@@ -8,10 +8,18 @@
         "neophp",
         "yaml",
         "routing",
-        "http"
+        "http",
+        "twig"
     ],
     "require": {
         "php": ">=8.2"
+    },
+    "conflict": {
+        "twig/twig": "<3.0"
+    },
+    "suggest": {
+        "twig/twig": "Required to render .twig templates (^3.0)",
+        "ext-zip": "Required to archive log files as .zip"
     },
     "autoload": {
         "psr-4": {
