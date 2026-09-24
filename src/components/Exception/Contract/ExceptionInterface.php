@@ -16,6 +16,10 @@ interface ExceptionInterface extends Throwable
 
     public function setStatusCode(int $statusCode): static;
 
+    public function getHeaders(): array;
+
+    public function setHeaders(array $headers): static;
+
     public function getStackTrace(): array;
 
     public function getPreviousExceptions(): array;

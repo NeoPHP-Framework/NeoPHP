@@ -14,6 +14,8 @@ abstract class AbstractException extends Exception implements ExceptionInterface
 
     protected int $statusCode = 500;
 
+    protected array $headers = [];
+
     public function __construct(string $message = '', int $code = 0, ?Throwable $previous = null, array $context = [])
     {
         $this->context = $context;
@@ -41,6 +43,18 @@ abstract class AbstractException extends Exception implements ExceptionInterface
     public function setStatusCode(int $statusCode): static
     {
         $this->statusCode = $statusCode;
+
+        return $this;
+    }
+
+    public function getHeaders(): array
+    {
+        return $this->headers;
+    }
+
+    public function setHeaders(array $headers): static
+    {
+        $this->headers = $headers;
 
         return $this;
     }

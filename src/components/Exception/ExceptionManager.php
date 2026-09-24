@@ -40,6 +40,11 @@ class ExceptionManager
         return $exception instanceof ExceptionInterface ? $exception->getStatusCode() : 500;
     }
 
+    public function getHeaders(Throwable $exception): array
+    {
+        return $exception instanceof ExceptionInterface ? $exception->getHeaders() : [];
+    }
+
     public function render(Throwable $exception): string
     {
         $status = $this->getStatusCode($exception);
@@ -49,6 +54,29 @@ class ExceptionManager
         }
 
         return $this->debug ? $this->renderDebug($exception, $status) : $this->renderSimple($exception, $status);
+    }
+
+    public function renderJson(Throwable $exception): array
+    {
+        $status = $this->getStatusCode($exception);
+        $error = [
+            'status' => $status,
+            'message' => $this->debug || $status < 500 ? $exception->getMessage() : (self::PHRASES[$status] ?? 'Error'),
+        ];
+
+        if ($this->debug) {
+            $error['exception'] = [
+                'class' => $exception::class,
+                'file' => $exception->getFile(),
+                'line' => $exception->getLine(),
+                'trace' => array_map(
+                    static fn (array $frame): string => $frame['call'] . ' ' . ($frame['file'] ?? '[internal]') . ':' . ($frame['line'] ?? '?'),
+                    $this->framesOf($exception),
+                ),
+            ];
+        }
+
+        return ['error' => $error];
     }
 
     protected function renderSimple(Throwable $exception, int $status): string
