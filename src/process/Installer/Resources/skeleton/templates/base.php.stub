@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title><?= $this->e($title ?? 'NeoPHP') ?></title>
+    <title><?= $this->e($title ?? $this->config('framework.app.name', 'NeoPHP')) ?></title>
     <style>
         body { margin: 0; font-family: system-ui, sans-serif; background: #f6f7f9; color: #1d2433; }
         main { max-width: 720px; margin: 0 auto; padding: 4rem 1.5rem; }

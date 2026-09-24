@@ -20,7 +20,6 @@ abstract class AbstractInstaller implements InstallerInterface
 
     public const DIRECTORIES = [
         'assets',
-        'config/framework',
         'config/packages',
         'public/builds',
         'src/Command',
