@@ -22,10 +22,10 @@ class InstallCommand extends AbstractCommand
 
     public function execute(Input $input, Output $output): int
     {
-        $projectDir = (string) $this->container->get('kernel.project_dir');
-        $report = $this->installer->install($projectDir, (bool) $input->getOption('force', false));
+        $rootPath = (string) $this->container->get('kernel.root_path');
+        $report = $this->installer->install($rootPath, (bool) $input->getOption('force', false));
 
-        $output->writeln(sprintf('<title>Installing NeoPHP in</title> %s', $projectDir));
+        $output->writeln(sprintf('<title>Installing NeoPHP in</title> %s', $rootPath));
         $output->writeln();
 
         foreach ($report as $path => $status) {

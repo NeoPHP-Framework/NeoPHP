@@ -23,10 +23,10 @@ class ServeCommand extends AbstractCommand
     {
         $host = (string) $input->getOption('host', '127.0.0.1');
         $port = (string) $input->getOption('port', '8000');
-        $publicDir = (string) $this->container->get('kernel.project_dir') . DIRECTORY_SEPARATOR . 'public';
+        $publicPath = (string) $this->container->get('kernel.public_path');
 
-        if (!is_file($publicDir . DIRECTORY_SEPARATOR . 'index.php')) {
-            $output->writeln(sprintf('<error>No front controller found in "%s". Run "php vendor/bin/neo install" first.</error>', $publicDir));
+        if (!is_file($publicPath . DIRECTORY_SEPARATOR . 'index.php')) {
+            $output->writeln(sprintf('<error>No front controller found in "%s". Run "php vendor/bin/neo install" first.</error>', $publicPath));
 
             return self::FAILURE;
         }
@@ -37,7 +37,7 @@ class ServeCommand extends AbstractCommand
             '%s -S %s -t %s %s',
             escapeshellarg(PHP_BINARY),
             escapeshellarg($host . ':' . $port),
-            escapeshellarg($publicDir),
+            escapeshellarg($publicPath),
             escapeshellarg(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'Resources' . DIRECTORY_SEPARATOR . 'router.php'),
         ), $exitCode);
 
