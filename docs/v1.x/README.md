@@ -8,6 +8,7 @@ NeoPHP v1.x is the base of the framework. It has no dependency other than PHP 8.
 - a YAML parser
 - PHP views stored in `templates/`
 - an HTTP layer (`Request`, `Response`, `JsonResponse`, `RedirectResponse`)
+- a configuration loaded from `.env` files and `config/**/*.yaml`, with placeholders (`%kernel.root_path%`, `%env(APP_NAME)%`...)
 - a console (`php bin/neo`) that generates the project files
 
 ## Installation (development)
@@ -43,10 +44,11 @@ php bin/neo serve
 `neo install` generates the project files and adds the `App\` autoload to `composer.json`. Existing files are never overwritten, unless `--force` is given.
 
 ```
+.env
 .gitignore
 assets/
 config/routes.yaml
-config/framework/
+config/framework/app.yaml
 config/packages/
 public/.htaccess
 public/index.php
@@ -196,6 +198,7 @@ Templates are PHP files in `templates/`: `render('user/show')` renders `template
 | `$this->e($value)` | escapes a value for HTML |
 | `$this->path('route', [...])` | generates the URL of a route |
 | `$this->asset('app.css')` | returns `/app.css` |
+| `$this->config('framework.app.name')` | reads a configuration value |
 
 `templates/base.php`
 
@@ -250,18 +253,91 @@ $exception->toArray();
 
 `{placeholders}` in the message are replaced by the context values. The status code (500 by default) and the headers (`getHeaders()`) are used for the HTTP response: routing exceptions use 404 and 405 (with the `Allow` header).
 
-## Environment
+## Configuration
+
+### Environment files
+
+The kernel loads, in this order (later files override earlier ones):
+
+| File | Committed | Purpose |
+|---|---|---|
+| `.env` | yes | default values |
+| `.env.local` | no | local overrides (not loaded when `APP_ENV=test`) |
+| `.env.{APP_ENV}` | yes | values for one environment (`.env.prod`, `.env.test`...) |
+| `.env.{APP_ENV}.local` | no | local overrides for one environment |
+
+Real environment variables (server, Docker...) always win over the files.
+
+```dotenv
+APP_NAME="My application"
+APP_ENV=dev
+APP_DEBUG=1
+DATABASE_URL="mysql://${DB_USER}@localhost/app"
+```
 
 | Variable | Default | Description |
 |---|---|---|
 | `APP_ENV` | `dev` | environment name |
 | `APP_DEBUG` | `true` unless `APP_ENV=prod` | shows the detailed error page |
 
+### YAML configuration
+
+Every `*.yaml` file of `config/` is loaded, except `routes.yaml` and `config/routes/`. The key is the file path:
+
+| File | Key |
+|---|---|
+| `config/framework/app.yaml` | `framework.app` |
+| `config/packages/mail.yaml` | `packages.mail` |
+| `config/services.yaml` | `services` |
+
+```php
+use NeoPHP\Component\Config\Contract\ConfigInterface;
+
+public function show(ConfigInterface $config): Response
+{
+    $name = $config->get('framework.app.name');
+    $port = $config->get('packages.mail.port', 25);
+}
+```
+
+In a template: `<?= $this->e($this->config('framework.app.name')) ?>`.
+
+### Placeholders
+
+Placeholders can be used in every YAML file, `routes.yaml` included:
+
+```yaml
+host: '%env(MAIL_HOST)%'
+port: '%env(int:MAIL_PORT)%'
+secure: '%env(bool:MAIL_SECURE)%'
+from: 'noreply@%env(MAIL_HOST)%'
+templates: '%kernel.templates_path%/emails'
+app_name: '%framework.app.name%'
+discount: '10%%'
+```
+
+| Placeholder | Value |
+|---|---|
+| `%env(NAME)%` | environment variable (string) |
+| `%env(int:NAME)%`, `%env(float:NAME)%`, `%env(bool:NAME)%` | environment variable cast to a type |
+| `%env(json:NAME)%`, `%env(csv:NAME)%` | environment variable decoded as JSON / split on commas |
+| `%kernel.root_path%` | project root directory |
+| `%kernel.config_path%` | `config/` directory |
+| `%kernel.public_path%` | `public/` directory |
+| `%kernel.templates_path%` | `templates/` directory |
+| `%kernel.environment%` | `APP_ENV` |
+| `%kernel.debug%` | debug mode (bool) |
+| `%kernel.version%` | NeoPHP version |
+| `%any.config.key%` | value of another configuration key |
+| `%%` | a literal `%` |
+
+A value made of a single placeholder keeps its type (`'%kernel.debug%'` is a bool). An undefined environment variable or configuration key throws a `ConfigException`.
 ## Architecture
 
 ```
 src/
 ├── components/
+│   ├── Config         YAML configuration and placeholders
 │   ├── Container      dependency injection container, autowiring, providers
 │   ├── Controller     controller resolution and AbstractController
 │   ├── Exception      FrameworkException and error pages
@@ -291,3 +367,4 @@ Feature/Contract/AbstractFeature.php
 - HTTP layer: `Request`, `Response`, `JsonResponse`, `RedirectResponse`, HTTP exceptions, JSON errors.
 - Console `neo` with the `install`, `serve` and `route:list` commands.
 - `bin/neo` generated in the project by `neo install`.
+- Configuration: `.env` files, `config/**/*.yaml`, placeholders `%kernel.*%`, `%env(...)%` and `%config.key%`.
