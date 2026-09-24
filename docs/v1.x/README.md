@@ -26,6 +26,17 @@ Until the framework is published on Packagist, require it through a Composer pat
         "php": ">=8.2",
         "neophp/framework": "*@dev"
     },
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    },
+    "scripts": {
+        "neo:install": "@php vendor/bin/neo install",
+        "post-create-project-cmd": "@neo:install",
+        "post-install-cmd": "@neo:install",
+        "post-update-cmd": "@neo:install"
+    },
     "minimum-stability": "dev",
     "prefer-stable": true
 }
@@ -35,11 +46,10 @@ Then:
 
 ```bash
 composer install
-php vendor/bin/neo install
-composer dump-autoload
 php bin/neo serve
 ```
-`php vendor/bin/neo install` is only needed once: it generates `bin/neo` in the project, then every command is run with `php bin/neo`.
+
+`composer install` runs `neo install` automatically: it generates the project files (including `bin/neo`). Existing files are never overwritten, unless `php bin/neo install --force` is used. A generated file that was deleted is created again on the next `composer install` or `composer update`.
 
 `neo install` generates the project files and adds the `App\` autoload to `composer.json`. Existing files are never overwritten, unless `--force` is given.
 
