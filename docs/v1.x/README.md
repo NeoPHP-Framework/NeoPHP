@@ -11,6 +11,7 @@ NeoPHP v1.x is the base of the framework. It has no dependency other than PHP 8.
 - assets compiled from `assets/` to `public/builds/` with hashed file names and a manifest
 - an HTTP layer (`Request`, `Response`, `JsonResponse`, `RedirectResponse`)
 - sessions, cookies (optionally signed) and flash messages, configured in `config/framework/app.yaml`
+- middlewares (PSR-15 style), global or attached to routes and controllers
 - a configuration loaded from `.env` files and `config/**/*.yaml`, with placeholders (`%kernel.root_path%`, `%env(APP_NAME)%`...)
 - a console (`php bin/neo`) that generates the project files
 
@@ -64,6 +65,7 @@ config/routes.yaml
 config/framework/app.yaml
 config/framework/asset.yaml
 config/framework/logger.yaml
+config/framework/middleware.yaml
 config/framework/view.yaml
 config/packages/
 public/.htaccess
@@ -90,6 +92,7 @@ var/sessions/
 | `php bin/neo install [--force]` | generates the project files |
 | `php bin/neo serve [--host=127.0.0.1] [--port=8000]` | starts the PHP development server |
 | `php bin/neo route:list` | lists the routes |
+| `php bin/neo middleware:list` | lists the global middlewares, the aliases and the groups |
 | `php bin/neo cache:clear` | clears `var/cache/` (routes, Twig templates...) |
 | `php bin/neo asset:reload [--minify]` | compiles `assets/` into `public/builds/` and rebuilds the manifest |
 
@@ -146,10 +149,11 @@ class BlogController extends AbstractController
 | `requirements` | regex per placeholder |
 | `defaults` | default values |
 | `options` | free options |
+| `middlewares` | middlewares of the route (see [Middlewares](#middlewares)) |
 
-On the class, `#[Route]` is a prefix: its `path` and `name` are prepended to every route of the class, and its `methods`, `requirements`, `defaults` and `options` are the default values of these routes. On an invokable class (`__invoke()`) without method routes, the class attribute defines the route itself. The attribute is repeatable.
+On the class, `#[Route]` is a prefix: its `path` and `name` are prepended to every route of the class, its `middlewares` run before the ones of the method, and its `methods`, `requirements`, `defaults` and `options` are the default values of these routes. On an invokable class (`__invoke()`) without method routes, the class attribute defines the route itself. The attribute is repeatable.
 
-`resource` can be a directory (scanned recursively) or a PHP file. `prefix`, `name_prefix`, `requirements`, `defaults`, `options` and `methods` can be used on the import, like for a YAML import:
+`resource` can be a directory (scanned recursively) or a PHP file. `prefix`, `name_prefix`, `requirements`, `defaults`, `options`, `methods` and `middlewares` can be used on the import, like for a YAML import:
 
 ```yaml
 admin_controllers:
@@ -192,6 +196,7 @@ admin:
 | `methods` | allowed HTTP methods (all when omitted) |
 | `requirements` | regex per placeholder (default `[^/]+`) |
 | `defaults` | default values; a trailing placeholder with a default is optional |
+| `middlewares` | middlewares of the route; on an import, they run before the ones of the imported routes |
 | `resource` | imports another routes file or a controllers directory (relative to the current file) |
 | `type` | `yaml` or `attribute` (default: `attribute` for a directory or a `.php` file, `yaml` otherwise) |
 | `prefix` / `name_prefix` | prefix applied to the imported paths / names |
@@ -579,6 +584,116 @@ hash:
 
 In PHP code, `NeoPHP\Component\Asset\Contract\AssetInterface` provides `url()`, `compile()`, `reload()` and `clear()`. A custom compiler implements `CompilerInterface` and is registered with `addCompiler()`.
 
+## Middlewares
+
+A middleware runs before and after the controller. It can modify the request, return a response without calling the controller, or modify the response.
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Middleware;
+
+use NeoPHP\Component\Http\Request\Request;
+use NeoPHP\Component\Http\Response\RedirectResponse;
+use NeoPHP\Component\Http\Response\Response;
+use NeoPHP\Component\Middleware\Attribute\AsMiddleware;
+use NeoPHP\Component\Middleware\Contract\MiddlewareInterface;
+use NeoPHP\Component\Middleware\Contract\RequestHandlerInterface;
+use NeoPHP\Component\Session\Contract\SessionInterface;
+
+#[AsMiddleware(name: 'auth')]
+class AuthMiddleware implements MiddlewareInterface
+{
+    public function __construct(protected SessionInterface $session)
+    {
+    }
+
+    public function process(Request $request, RequestHandlerInterface $handler): Response
+    {
+        if (!$this->session->has('user_id')) {
+            return new RedirectResponse('/login');
+        }
+
+        $response = $handler->handle($request);
+        $response->setHeader('Cache-Control', 'no-store');
+
+        return $response;
+    }
+}
+```
+
+The interfaces mirror PSR-15 without dependency: `MiddlewareInterface::process(Request, RequestHandlerInterface): Response` and `RequestHandlerInterface::handle(Request): Response`. Middlewares are built by the container: their dependencies are autowired.
+
+### Global middlewares
+
+Global middlewares run on every request, before the routing (they also run for a 404).
+
+`config/framework/middleware.yaml`
+
+```yaml
+global:
+  - App\Middleware\MaintenanceMiddleware
+
+aliases:
+  auth: App\Middleware\AuthMiddleware
+
+groups:
+  admin: [auth, App\Middleware\AdminMiddleware]
+```
+
+A middleware can also declare itself with `#[AsMiddleware]`, discovered in `src/`:
+
+| Argument | Description |
+|---|---|
+| `name` | alias of the middleware (`auth`) |
+| `global` | runs the middleware on every request |
+| `priority` | order of the global middlewares declared with the attribute (highest first) |
+
+The global middlewares of `middleware.yaml` run first, in their order, then the global middlewares declared with `#[AsMiddleware]`. The discovery is cached in `var/cache/middleware/` (rebuilt in debug when a file of `src/` changes).
+
+### Route middlewares
+
+A middleware is referenced by its alias, a group or its class name.
+
+```php
+#[Middleware('auth')]
+class AdminController extends AbstractController
+{
+    #[Route('/admin/users', name: 'admin_users', middlewares: ['audit'])]
+    #[Middleware('admin', App\Middleware\TwoFactorMiddleware::class)]
+    public function users(): Response
+    {
+        return $this->render('admin/users');
+    }
+}
+```
+
+```yaml
+admin:
+  resource: ../src/Admin/Controller/
+  type: attribute
+  prefix: /admin
+  middlewares: [admin]
+
+legacy:
+  path: /legacy
+  controller: App\Controller\LegacyController::index
+  middlewares: [auth]
+```
+
+Order of execution:
+
+1. global middlewares of `middleware.yaml`
+2. global middlewares declared with `#[AsMiddleware(global: true)]`
+3. `middlewares` of the YAML import, then of the YAML route
+4. `middlewares` of `#[Route]` on the class, then on the method
+5. `#[Middleware]` on the class, then on the method
+6. the controller
+
+A middleware is never run twice: a middleware already global is ignored on the route. An unknown alias throws a `MiddlewareException`.
+
 ## Session, cookies and flash messages
 
 They are configured in `config/framework/app.yaml`:
@@ -883,8 +998,9 @@ src/
 │   ├── Exception      FrameworkException and error pages
 │   ├── Flash          flash messages stored in the session
 │   ├── Http           Request, Response, JsonResponse, RedirectResponse
-│   ├── Kernel         boot, request lifecycle, cache:clear
+│   ├── Kernel         boot, request lifecycle, class discovery, cache, cache:clear
 │   ├── Logger         PSR-3 logger, channels, rotation, archives
+│   ├── Middleware     middlewares, pipeline, aliases and groups
 │   ├── Routing        YAML and attribute routes, cache, matching, URL generation
 │   ├── Session        native PHP session, started on demand
 │   └── View           PHP and Twig templates, view helpers discovery
@@ -921,3 +1037,4 @@ Feature/Helper/Console/FeatureXxxCommand.php    (optional)
 - Controllers: `AbstractController` made of traits shipped by each feature in `Helper/Controller/` (v1.4.0).
 - Routing: `#[Route]` attribute, controllers imported with `type: attribute` in `routes.yaml`, routes cache, `cache:clear` command, duplicate route names detected (v1.5.0).
 - Session, cookies (signed with `APP_SECRET`) and flash messages configured in `app.yaml`, with controller traits and view helpers (v1.6.0).
+- Middlewares: PSR-15 style interfaces, global middlewares (`middleware.yaml`, `#[AsMiddleware]`), aliases and groups, route middlewares (`#[Middleware]`, `#[Route(middlewares)]`, `routes.yaml`), `middleware:list` command (v1.7.0).
