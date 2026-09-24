@@ -1,0 +1,32 @@
+name: Release minor / patch
+
+on:
+    pull_request:
+        types: [closed]
+        branches:
+            - 'v[0-9]+.x'
+            - 'v[0-9]+.X'
+
+permissions:
+    contents: write
+    pull-requests: read
+
+concurrency:
+    group: release
+    cancel-in-progress: false
+
+jobs:
+    release:
+        if: github.event.pull_request.merged == true
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.pull_request.merge_commit_sha }}
+                  sparse-checkout: .github/scripts
+
+            - uses: actions/github-script@v7
+              with:
+                  script: |
+                      const release = require('./.github/scripts/release.js');
+                      await release.releaseVersion({ github, context, core });
