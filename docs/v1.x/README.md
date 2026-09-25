@@ -13,9 +13,10 @@ NeoPHP v1.x is the base of the framework. It has no dependency other than PHP 8.
 - sessions, cookies (optionally signed) and flash messages, configured in `config/framework/app.yaml`
 - middlewares (PSR-15 style), global or attached to routes and controllers
 - a dependency injection container with autowiring, `#[Autowire]`, `#[Inject]` and `config/services.yaml`
-- a configuration loaded from `.env` files and `config/**/*.yaml`, with placeholders (`%kernel.root_path%`, `%env(APP_NAME)%`...)
 - events and listeners (PSR-14 style), with the kernel events
 - a validator with constraints usable as attributes (`#[Assert\NotBlank]`) or objects (`new NotBlank()`)
+- a database layer on top of PDO (MySQL / MariaDB, PostgreSQL, SQLite), configured in `config/framework/database.yaml`
+- a configuration loaded from `.env` files and `config/**/*.yaml`, with placeholders (`%kernel.root_path%`, `%env(APP_NAME)%`...)
 - a console (`php bin/neo`) that generates the project files
 
 ## Installation (development)
@@ -102,6 +103,9 @@ var/sessions/
 | `php bin/neo event:list [filter]` | lists the events and their listeners in the order they are called |
 | `php bin/neo cache:clear` | clears `var/cache/` (routes, Twig templates...) |
 | `php bin/neo asset:reload [--minify]` | compiles `assets/` into `public/builds/` and rebuilds the manifest |
+| `php bin/neo database:create [--connection=name] [--if-not-exists]` | creates the database of a connection |
+| `php bin/neo database:drop --force [--connection=name] [--if-exists]` | drops the database of a connection |
+| `php bin/neo database:query "SQL" [--connection=name]` | executes a SQL query and displays the result |
 
 Each feature can ship its own commands in `Feature/Helper/Console/`: they are discovered automatically, in the framework and in the application (`src/**/Helper/Console/`). A command extends `NeoPHP\Process\Console\Contract\AbstractCommand`.
 
@@ -918,9 +922,7 @@ They can also be declared in `config/framework/event.yaml`:
 listeners:
   App\Event\UserRegisteredEvent:
     - App\Listener\SendWelcomeMail
-    -   listener: App\Listener\Audit
-        method: onRegistered
-        priority: 10
+    - { listener: App\Listener\Audit, method: onRegistered, priority: 10 }
 
 subscribers:
   - App\Subscriber\UserSubscriber
@@ -1124,6 +1126,183 @@ class UniqueUsernameValidator extends AbstractConstraintValidator
 
 `ExecutionContext` gives `addViolation($message, $parameters, $path)`, `getObject()` (object being validated), `getRoot()`, `getPropertyPath()`, `getGroups()` and `validate($value, $constraints, $path)` to validate a nested value.
 
+## Database
+
+The Database component gives a connection to a database and runs SQL queries with PDO. It is not an ORM: entities, repositories, migrations and the query builder belong to the ORM (v1.12.0).
+
+It requires the `pdo` extension and the driver of the database:
+
+| Driver | Extension | URL schemes |
+|---|---|---|
+| MySQL / MariaDB | `pdo_mysql` | `mysql://`, `mariadb://` |
+| PostgreSQL | `pdo_pgsql` | `postgresql://`, `postgres://`, `pgsql://` |
+| SQLite | `pdo_sqlite` | `sqlite://` |
+
+### Configuration
+
+`config/framework/database.yaml`:
+
+```yaml
+default: default
+
+connections:
+  default:
+    url: '%env(DATABASE_URL)%'
+```
+
+`.env`:
+
+```dotenv
+# DATABASE_URL="mysql://user:password@127.0.0.1:3306/app?charset=utf8mb4"
+# DATABASE_URL="postgresql://user:password@127.0.0.1:5432/app?charset=utf8"
+DATABASE_URL="sqlite:///%kernel.root_path%/var/data.db"
+```
+
+A connection is configured with a `url`, with separate parameters, or both: the parameters override the parts of the URL.
+
+```yaml
+default: default
+
+connections:
+  default:
+    url: '%env(DATABASE_URL)%'
+  analytics:
+    driver: pgsql
+    host: '%env(ANALYTICS_HOST)%'
+    port: 5432
+    dbname: analytics
+    user: '%env(ANALYTICS_USER)%'
+    password: '%env(ANALYTICS_PASSWORD)%'
+    charset: utf8
+  cache:
+    driver: sqlite
+    path: var/cache.db
+    options:
+      ATTR_TIMEOUT: 5
+```
+
+| Parameter | Description |
+|---|---|
+| `url` | `driver://user:password@host:port/dbname?charset=...`; special characters of the user and the password are URL-encoded (`@` is `%40`) |
+| `driver` | `mysql` (or `mariadb`), `pgsql` (or `postgresql`), `sqlite` |
+| `host`, `port`, `dbname`, `user`, `password` | server connection (MySQL and PostgreSQL) |
+| `unix_socket` | socket used instead of `host` and `port` |
+| `charset` | `utf8mb4` by default for MySQL, `utf8` for PostgreSQL |
+| `collation` | MySQL collation used by `database:create` |
+| `sslmode` | PostgreSQL SSL mode |
+| `path` | SQLite file, relative to the project root or absolute; `sqlite:///:memory:` for an in-memory database |
+| `foreign_keys` | SQLite: set to `false` to disable `PRAGMA foreign_keys = ON` |
+| `options` | PDO attributes, by name (`ATTR_TIMEOUT`) or number |
+
+With a URL, `sqlite:///var/data.db` is relative to the project root and `sqlite:///%kernel.root_path%/var/data.db` is absolute.
+
+The connections are opened on the first query. PDO throws exceptions and fetches associative arrays by default.
+
+### Usage
+
+In a controller, `getConnection()` returns the default connection, `getConnection('analytics')` another one:
+
+```php
+#[Route('/posts/{id}', name: 'post_show')]
+public function show(int $id): Response
+{
+    $post = $this->getConnection()->fetchAssociative('SELECT * FROM post WHERE id = :id', ['id' => $id]);
+
+    if ($post === null) {
+        throw $this->createNotFoundException('Post not found.');
+    }
+
+    return $this->render('post/show.php', ['post' => $post]);
+}
+```
+
+In a service, inject `ConnectionInterface` (default connection), a named connection with `#[Autowire(service: 'database.connection.<name>')]`, or `DatabaseInterface` to use all the connections:
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Repository;
+
+use NeoPHP\Component\Container\Attribute\Autowire;
+use NeoPHP\Component\Database\Contract\ConnectionInterface;
+
+class PostRepository
+{
+    public function __construct(
+        protected ConnectionInterface $connection,
+        #[Autowire(service: 'database.connection.analytics')] protected ConnectionInterface $analytics,
+    ) {
+    }
+
+    public function findPublished(): array
+    {
+        return $this->connection->fetchAllAssociative('SELECT * FROM post WHERE published = ? ORDER BY id DESC', [true]);
+    }
+}
+```
+
+| Method | Returns |
+|---|---|
+| `executeQuery($sql, $params)` | a `Result` |
+| `executeStatement($sql, $params)` | the number of affected rows |
+| `fetchAssociative()` / `fetchNumeric()` / `fetchObject()` | the first row, or `null` |
+| `fetchOne()` | the first column of the first row, or `null` |
+| `fetchAllAssociative()` / `fetchAllNumeric()` / `fetchAllObjects()` | all the rows |
+| `fetchFirstColumn()` | the first column of every row |
+| `fetchAllKeyValue()` | `[first column => second column]` |
+| `fetchAllAssociativeIndexed()` | the rows indexed by their first column |
+| `iterateAssociative()` | a generator, row by row |
+| `insert($table, $data)` | the number of inserted rows |
+| `update($table, $data, $criteria)` | the number of updated rows |
+| `delete($table, $criteria)` | the number of deleted rows |
+| `lastInsertId(?$sequence)` | the last inserted id (PostgreSQL: the sequence name, `post_id_seq`) |
+| `quote($value)` / `quoteIdentifier($name)` | a quoted value / identifier |
+| `getPdo()` | the PDO instance |
+
+```php
+$connection->insert('post', ['title' => 'Hello', 'status' => Status::Published, 'created_at' => new DateTimeImmutable()]);
+$id = $connection->lastInsertId();
+
+$connection->update('post', ['title' => 'Hello world'], ['id' => $id]);
+$connection->delete('post', ['status' => [Status::Draft, Status::Archived]]);
+```
+
+`update()` and `delete()` require criteria: a `null` criterion becomes `IS NULL`, an array becomes `IN (...)`.
+
+### Parameters
+
+Parameters are positional (`?`) or named (`:name`), not both in the same query. The values are bound with their type: `int`, `bool`, `null`, `float`, backed enums (their value), `DateTimeInterface` (`Y-m-d H:i:s`), `Stringable`.
+
+An array is expanded, for `IN` clauses:
+
+```php
+$connection->fetchAllAssociative('SELECT * FROM post WHERE id IN (:ids)', ['ids' => [1, 2, 3]]);
+$connection->fetchAllAssociative('SELECT * FROM post WHERE id IN (?) AND views > ?', [[1, 2, 3], 10]);
+```
+
+An empty array becomes `NULL`, so `IN (NULL)` matches nothing.
+
+### Transactions
+
+```php
+$connection->transactional(function (ConnectionInterface $connection): void {
+    $connection->insert('order', ['reference' => 'A-001']);
+    $connection->insert('order_line', ['order_id' => $connection->lastInsertId(), 'quantity' => 2]);
+});
+```
+
+`transactional()` commits and returns the value of the callback, or rolls back and rethrows the exception. `beginTransaction()`, `commit()` and `rollBack()` can be called directly. Nested transactions use savepoints.
+
+### Errors
+
+| Exception | Thrown when |
+|---|---|
+| `ConnectionException` | the connection fails, or the PDO extension of the driver is missing |
+| `QueryException` | a query fails; `getSql()` and `getParams()` return the query and its parameters |
+| `DatabaseException` | the configuration is invalid, a connection does not exist... (parent of the two others) |
+
 ## Session, cookies and flash messages
 
 They are configured in `config/framework/app.yaml`:
@@ -1288,6 +1467,9 @@ DATABASE_URL="mysql://${DB_USER}@localhost/app"
 | `APP_ENV` | `dev` | environment name |
 | `APP_DEBUG` | `true` unless `APP_ENV=prod` | shows the detailed error page |
 | `APP_SECRET` | none | key used to sign cookies |
+| `DATABASE_URL` | `sqlite:///%kernel.root_path%/var/data.db` | URL of the default database connection |
+
+`php bin/neo install` creates `.env`; when `.env` already exists, it adds the variables that are missing (with their comments) and keeps the others.
 
 ### YAML configuration
 
@@ -1424,16 +1606,18 @@ src/
 │   ├── Container      dependency injection container, autowiring, #[Autowire], #[Inject], providers
 │   ├── Controller     controller resolution and AbstractController (made of traits)
 │   ├── Cookie         cookies read from the request, queued, signed
+│   ├── Database       PDO connections (MySQL, PostgreSQL, SQLite), queries, transactions
 │   ├── Event          event dispatcher, listeners, subscribers
 │   ├── Exception      FrameworkException and error pages
 │   ├── Flash          flash messages stored in the session
 │   ├── Http           Request, Response, JsonResponse, RedirectResponse
-│   ├── Kernel         boot, request lifecycle, kernel events, class discovery, cache, cache:clear│   ├── Logger         PSR-3 logger, channels, rotation, archives
+│   ├── Kernel         boot, request lifecycle, kernel events, class discovery, cache, cache:clear
+│   ├── Logger         PSR-3 logger, channels, rotation, archives
 │   ├── Middleware     middlewares, pipeline, aliases and groups
 │   ├── Routing        YAML and attribute routes, cache, matching, URL generation
 │   ├── Service        config/services.yaml, resources, aliases, interfaces
-│   ├── Validator      constraints (attributes or objects), violations, groups
 │   ├── Session        native PHP session, started on demand
+│   ├── Validator      constraints (attributes or objects), violations, groups
 │   └── View           PHP and Twig templates, view helpers discovery
 ├── packages/
 │   ├── Dotenv         .env files loader
@@ -1474,3 +1658,4 @@ Feature/Helper/Listener/FeatureListener.php     (optional)
 - Events: PSR-14 style dispatcher, `#[AsListener]`, subscribers, `event.yaml`, stoppable events, kernel events (`RequestEvent`, `ControllerEvent`, `ResponseEvent`, `ExceptionEvent`, `TerminateEvent`) replacing `TerminableInterface`, `dispatch()` in controllers, `event:list` command (v1.9.0).
 - Routing: attribute routes discovered with the kernel `ClassFinder` and routes cache stored with `ResourceCache`; an old routes cache is rebuilt automatically (v1.9.1).
 - Validator: constraints usable as attributes or objects, validation of objects, values and arrays, groups, `Valid`, `All`, `Collection`, `Callback`, custom constraints with autowired validators, `validate()` in controllers, 422 JSON response for `ValidationFailedException` (v1.10.0).
+- Database: PDO connections configured in `database.yaml` with a URL or parameters (MySQL / MariaDB, PostgreSQL, SQLite), several connections, query and fetch methods, `insert()` / `update()` / `delete()`, array parameters expanded, nested transactions, `getConnection()` in controllers, `database:create`, `database:drop` and `database:query` commands; `neo install` adds the missing variables to an existing `.env` (v1.11.0).
