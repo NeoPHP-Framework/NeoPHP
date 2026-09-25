@@ -19,6 +19,7 @@ NeoPHP v1.x is the base of the framework. It has no dependency other than PHP 8.
 - an ORM (data mapper): entities mapped with attributes, repositories, unit of work, lazy relations, query builders, migrations generated from the entities
 - forms (`src/Form/XxxForm.php`) mapped to an entity or to an array, validated, rendered with themes (HTML or Bootstrap 5), with CSRF protection
 - security: firewalls, login form, HTTP Basic, access tokens, remember-me, user providers, password hashers, roles, voters and `#[IsGranted]`, configured in `config/packages/security.yaml`
+- `dump()` and `dd()` with a collapsible HTML dump (HTTP, templates, error page) and a colored console dump, disabled in production
 - a configuration loaded from `.env` files and `config/**/*.yaml`, with placeholders (`%kernel.root_path%`, `%env(APP_NAME)%`...)
 - a console (`php bin/neo`) that generates the project files
 
@@ -120,6 +121,7 @@ var/sessions/
 | `php bin/neo make:auth [SecurityController] [--twig] [--force]` | generates a login controller and its template |
 | `php bin/neo make:voter Post [--force]` | generates `src/Security/Voter/PostVoter.php` |
 | `php bin/neo security:hash-password secret [UserClass]` | hashes a password with the configured hasher |
+| `php bin/neo debug:container [filter\|id] [--dump] [--parameters]` | lists the services of the container or shows one of them |
 
 Each feature can ship its own commands in `Feature/Helper/Console/`: they are discovered automatically, in the framework and in the application (`src/**/Helper/Console/`). A command extends `NeoPHP\Process\Console\Contract\AbstractCommand`.
 
@@ -489,6 +491,7 @@ Each feature ships its own helpers in `Feature/Helper/View/FeatureViewHelper.php
 | `Routing/Helper/View/PathViewHelper.php` | `path()` |
 | `Session/Helper/View/SessionViewHelper.php` | `session()` |
 | `Security/Helper/View/*ViewHelper.php` (package) | `app_user()`, `is_granted()`, `logout_path()`, `last_username()`, `last_authentication_error()` |
+| `Debug/Helper/View/DumpViewHelper.php` (package) | `dump()` |
 
 The View component contains no helper: it discovers every `Helper/View/` directory of the framework and of the application (`src/**/Helper/View/`). Dependencies are autowired. An application helper with the same name as a framework helper replaces it.
 
@@ -2263,6 +2266,41 @@ $data = (new YamlManager())->parseFile('config/app.yaml');
 
 Supported: mappings, sequences, flow collections (`[a, b]`, `{a: 1}`), quoted strings, booleans, null, numbers, block scalars (`|`, `>`) and comments. Anchors, aliases and tags are not supported.
 
+## Debug
+
+The Debug package (`src/packages/Debug`) dumps variables while developing. It is enabled when `APP_DEBUG` is true (`config/packages/debug.yaml`, `enabled: '%kernel.debug%'`); when it is disabled, `dump()` does nothing and `dd()` only stops the script (HTTP 500), so a forgotten dump never leaks data in production.
+
+```php
+dump($user);                 // dumps and continues, returns $user
+dump($request, $post, 42);   // several values at once
+dd($form->getData());        // dumps and stops the script
+```
+
+`dump()` and `dd()` are global functions loaded by Composer (`autoload.files`, run `composer update` or `composer dump-autoload` after upgrading), available everywhere: controllers, services, templates, commands and plain scripts. Each dump shows the file and line where it was called.
+
+| Where | Output |
+|---|---|
+| HTTP | the dumps are collected and inserted at the top of the `<body>` of the response (before the text for non-HTML responses), so the session, the cookies and the headers still work after a `dump()`; `dd()` prints them immediately |
+| Console | colored text on the standard output (plain text when it is not a terminal or when `NO_COLOR` is set) |
+| Templates | `{{ dump(items, post) }}` / `<?= $this->dump($items) ?>` renders the dump at this place (nothing when disabled) |
+
+The HTML dump is collapsible (click on ▼ / ▶): the first level is open, the deeper ones are closed. Values show their type and size (`array:3`, `"string"` with its length on hover), objects their class and id (`App\Entity\Post {#12}`), properties their visibility (`+` public, `#` protected, `-` private, `~` virtual), enums (`PostStatus::Draft "draft"`), closures (parameters, file, lines), dates, resources and binary strings (`b"\xFF"`). An object already dumped in the same value is shown as `{#12}` (no infinite recursion).
+
+```yaml
+# config/packages/debug.yaml
+enabled: '%kernel.debug%'
+max_depth: 10       # nested levels dumped
+max_items: 250      # items per array / properties per object
+max_string: 1000    # characters per string
+expand_depth: 1     # levels open in the HTML dump
+```
+
+Outside `dump()`, inject `NeoPHP\Package\Debug\Contract\DebugInterface`: `toHtml($value)`, `toText($value, $label, $colors)`, `isEnabled()`.
+
+When the debug mode is on, the error page uses the dumper to display the context of the exception (`FrameworkException` context) and the arguments of each frame of the stack trace (collapsed; PHP only records them when `zend.exception_ignore_args` is `Off`, the default of the development `php.ini`).
+
+`php bin/neo debug:container [filter|id] [--dump] [--parameters]` lists the services of the container (id, kind: singleton / factory / instance / alias, class, resolved or not), `--parameters` lists the parameters (`kernel.*`), an id shows the details of a service (alias target, class, constructor arguments) and `--dump` builds it and dumps it.
+
 ## Exceptions
 
 Every framework exception extends `NeoPHP\Component\Exception\FrameworkException`:
@@ -2465,6 +2503,7 @@ src/
 │   ├── Validator      constraints (attributes or objects), violations, groups
 │   └── View           PHP and Twig templates, view helpers discovery
 ├── packages/
+│   ├── Debug          dump() and dd(), HTML and console dumpers, debug:container
 │   ├── Dotenv         .env files loader
 │   ├── Orm            entities, unit of work, repositories, query builders, proxies, migrations
 │   ├── Security       firewalls, authenticators, user providers, password hashers, voters, #[IsGranted]
@@ -2509,3 +2548,4 @@ Feature/Helper/Listener/FeatureListener.php     (optional)
 - ORM package: entities mapped with attributes, `ManyToOne` / `OneToMany` / `OneToOne` / `ManyToMany` relations with lazy loading (generated proxies, lazy collections), cascade and orphan removal, unit of work with identity map and change tracking, repositories, entity and SQL query builders, lifecycle callbacks and events, enum / JSON / date / decimal types, `make:entity`, `make:repository`, `make:migration` (diff between the entities and the database), `migration:migrate`, `migration:rollback` and `migration:status` commands, `config/packages/orm.yaml` (v1.11.0).
 - Forms and CSRF: form classes extending `AbstractForm` mapped to an entity or an array, field types (text, number, checkbox, choice, enum, entity, date, file, collection, repeated, submit...), conversion and data mapping, validation with the field and entity constraints, `default` and `bootstrap5` themes with `form_*` view helpers, `make:form` (fields generated from an entity); CSRF component with tokens in the session, automatic token in forms, `csrf_token()` / `csrf_field()` helpers, `isCsrfTokenValid()` in controllers and `#[Csrf]` attribute; `File` and `Image` constraints (v1.12.0).
 - Security package: firewalls with login form, HTTP Basic, access tokens, custom authenticators and remember-me cookie, entity / memory / chain / custom user providers, password hashers with automatic rehash, login throttling, user checkers, logout with optional CSRF token, roles with hierarchy, voters (`#[AsVoter]`), `#[IsGranted]`, `access_control`, access decision strategies, `getUser()` / `isGranted()` / `denyAccessUnlessGranted()` / `loginUser()` / `logoutUser()` in controllers, `app_user()` / `is_granted()` / `logout_path()` view helpers, login events, `make:user`, `make:auth`, `make:voter` and `security:hash-password` commands, `config/packages/security.yaml` (v1.13.0).
+- Debug package: `dump()` and `dd()` global functions, collapsible HTML dumps inserted in the response, colored console dumps, `dump()` view helper, dumps disabled when `APP_DEBUG` is false, exception context and stack trace arguments dumped on the error page, `debug:container` command, `config/packages/debug.yaml`; the container exposes `getDefinitions()` and `getAliases()` (v1.14.0).
