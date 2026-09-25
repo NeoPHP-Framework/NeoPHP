@@ -1,0 +1,3 @@
+field_name: _token
+header_name: X-CSRF-TOKEN
+session_key: _csrf
