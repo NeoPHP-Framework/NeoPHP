@@ -34,6 +34,7 @@ abstract class AbstractInstaller implements InstallerInterface
         'src/Listener',
         'src/Middleware',
         'src/Repository',
+        'src/Security',
         'src/Service',
         'tests',
         'var/cache',

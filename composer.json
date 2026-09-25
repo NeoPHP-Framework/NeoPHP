@@ -12,7 +12,8 @@
         "twig",
         "database",
         "orm",
-        "form"
+        "form",
+        "security"
     ],
     "require": {
         "php": ">=8.2"

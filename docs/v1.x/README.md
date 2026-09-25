@@ -18,6 +18,7 @@ NeoPHP v1.x is the base of the framework. It has no dependency other than PHP 8.
 - a database layer on top of PDO (MySQL / MariaDB, PostgreSQL, SQLite), configured in `config/framework/database.yaml`
 - an ORM (data mapper): entities mapped with attributes, repositories, unit of work, lazy relations, query builders, migrations generated from the entities
 - forms (`src/Form/XxxForm.php`) mapped to an entity or to an array, validated, rendered with themes (HTML or Bootstrap 5), with CSRF protection
+- security: firewalls, login form, HTTP Basic, access tokens, remember-me, user providers, password hashers, roles, voters and `#[IsGranted]`, configured in `config/packages/security.yaml`
 - a configuration loaded from `.env` files and `config/**/*.yaml`, with placeholders (`%kernel.root_path%`, `%env(APP_NAME)%`...)
 - a console (`php bin/neo`) that generates the project files
 
@@ -115,6 +116,10 @@ var/sessions/
 | `php bin/neo migration:rollback [--steps=1] [--dry-run]` | rolls back the last executed migrations |
 | `php bin/neo migration:status` | lists the migrations and their status |
 | `php bin/neo make:form Post [Entity] [--force]` | generates `src/Form/PostForm.php`, with the fields of the entity when given |
+| `php bin/neo make:user [User] [--property=email] [--force]` | generates a user entity and its repository |
+| `php bin/neo make:auth [SecurityController] [--twig] [--force]` | generates a login controller and its template |
+| `php bin/neo make:voter Post [--force]` | generates `src/Security/Voter/PostVoter.php` |
+| `php bin/neo security:hash-password secret [UserClass]` | hashes a password with the configured hasher |
 
 Each feature can ship its own commands in `Feature/Helper/Console/`: they are discovered automatically, in the framework and in the application (`src/**/Helper/Console/`). A command extends `NeoPHP\Process\Console\Contract\AbstractCommand`.
 
@@ -284,6 +289,7 @@ A controller returns a `Response`. For convenience, a `string` becomes an HTML r
 | `addFlash($type, $message)` | adds a flash message |
 | `dispatch($event)` | dispatches an event (see [Events](#events)) |
 | `validate($value, $constraints, $groups)` | `ViolationList` (see [Validator](#validator)) |
+| `getUser()`, `isGranted()`, `denyAccessUnlessGranted()`, `loginUser()`, `logoutUser()` | see [Security](#security) |
 
 `AbstractController` has no method of its own: it is made of traits, and each feature ships its trait in `Feature/Helper/Controller/`:
 
@@ -295,6 +301,7 @@ A controller returns a `Response`. For convenience, a `string` becomes an HTML r
 | `Flash/Helper/Controller/FlashController` | `addFlash()` |
 | `Http/Helper/Controller/HttpController` | `json()`, `redirect()`, `createNotFoundException()`, `createAccessDeniedException()` |
 | `Routing/Helper/Controller/RoutingController` | `generateUrl()`, `redirectToRoute()` |
+| `Security/Helper/Controller/SecurityController` (package) | `getUser()`, `isGranted()`, `denyAccessUnlessGranted()`, `loginUser()`, `logoutUser()`, `getLastUsername()`, `getLastAuthenticationError()` |
 | `Session/Helper/Controller/SessionController` | `getSession()` |
 | `Validator/Helper/Controller/ValidatorController` | `validate()` |
 | `View/Helper/Controller/ViewController` | `render()`, `renderView()` |
@@ -481,6 +488,7 @@ Each feature ships its own helpers in `Feature/Helper/View/FeatureViewHelper.php
 | `Flash/Helper/View/FlashesViewHelper.php` | `flashes()` |
 | `Routing/Helper/View/PathViewHelper.php` | `path()` |
 | `Session/Helper/View/SessionViewHelper.php` | `session()` |
+| `Security/Helper/View/*ViewHelper.php` (package) | `app_user()`, `is_granted()`, `logout_path()`, `last_username()`, `last_authentication_error()` |
 
 The View component contains no helper: it discovers every `Helper/View/` directory of the framework and of the application (`src/**/Helper/View/`). Dependencies are autowired. An application helper with the same name as a framework helper replaces it.
 
@@ -1139,7 +1147,7 @@ class UniqueUsernameValidator extends AbstractConstraintValidator
 
 ## Database
 
-The Database component gives a connection to a database and runs SQL queries with PDO. It is not an ORM: entities, repositories, migrations and the query builder belong to the ORM (v1.12.0).
+The Database component gives a connection to a database and runs SQL queries with PDO. It is not an ORM: entities, repositories, migrations and the query builder belong to the ORM (v1.11.0).
 
 It requires the `pdo` extension and the driver of the database:
 
@@ -1888,6 +1896,256 @@ header_name: X-CSRF-TOKEN
 session_key: _csrf
 ```
 
+## Security
+
+The Security package (`src/packages/Security`) authenticates the users (login form, HTTP Basic, access tokens, custom authenticators, remember-me) and checks their permissions (roles, role hierarchy, voters, `#[IsGranted]`, `access_control`). It is enabled when `config/packages/security.yaml` defines at least one firewall or one `access_control` rule; without it the package does nothing.
+
+### Quick start
+
+```bash
+php bin/neo make:user                  # src/Entity/User.php + src/Repository/UserRepository.php
+php bin/neo make:migration && php bin/neo migration:migrate
+php bin/neo make:auth                  # src/Controller/SecurityController.php + templates/security/login.php (--twig for Twig)
+php bin/neo security:hash-password secret
+```
+
+```yaml
+# config/packages/security.yaml
+providers:
+  users:
+    entity:
+      class: App\Entity\User
+      property: email
+
+password_hashers:
+  default: auto
+
+firewalls:
+  assets:
+    pattern: ^/builds/
+    security: false
+  main:
+    pattern: ^/
+    provider: users
+    form_login:
+      login_path: app_login
+      enable_csrf: true
+      default_target_path: /
+    logout:
+      path: app_logout
+      target: /
+    remember_me:
+      lifetime: 604800
+    login_throttling:
+      max_attempts: 5
+      interval: 60
+
+role_hierarchy:
+  ROLE_ADMIN: [ROLE_USER]
+
+access_control:
+  - { path: ^/admin, roles: ROLE_ADMIN }
+  - { path: ^/profile, roles: IS_AUTHENTICATED }
+```
+
+`neo install` creates a default `config/packages/security.yaml` (memory provider without users, login form on `/login`).
+
+### Users
+
+A user implements `NeoPHP\Package\Security\Contract\UserInterface` (`getUserIdentifier()`, `getRoles()`) and `PasswordAuthenticatedUserInterface` (`getPassword()`) when it logs in with a password. `make:user [User] [--property=email] [--force]` generates an entity with `id`, the identifier property (unique), `roles` (JSON, `ROLE_USER` always added) and `password`.
+
+| Provider | Configuration |
+|---|---|
+| ORM entity | `entity: { class: App\Entity\User, property: email }`; without `property`, the repository must define `loadUserByIdentifier()` |
+| Memory | `memory: { users: { admin: { password: '$2y$...', roles: [ROLE_ADMIN] } } }` (`InMemoryUser`) |
+| Chain | `chain: { providers: [users, admins] }` |
+| Custom | `id: App\Security\MyProvider` (implements `UserProviderInterface`) |
+
+A firewall uses its `provider` option, or the single provider when only one is defined. The user is stored in the session by identifier and reloaded on the first access to the user of the request; when its password changed, the session is closed.
+
+### Passwords
+
+`password_hashers` maps a class (or an interface, or `default`) to `auto`, `bcrypt`, `argon2i`, `argon2id`, `plaintext`, `{ algorithm: bcrypt, cost: 12 }` or `{ id: App\Security\MyHasher }` (implements `PasswordHasherInterface`). Inject `NeoPHP\Package\Security\Hasher\UserPasswordHasher`:
+
+```php
+$user->setPassword($hasher->hashPassword($user, $plainPassword));
+$hasher->isPasswordValid($user, $plainPassword);
+```
+
+When a password hashed with older options is valid, it is rehashed and saved (entity provider).
+
+### Firewalls
+
+The first firewall whose `pattern` (regular expression, plus optional `host`, `methods`, `ips`) matches the request is used.
+
+| Option | Description |
+|---|---|
+| `security: false` | no authentication at all (assets...) |
+| `stateless: true` | nothing stored in the session (APIs) |
+| `provider` | name of the user provider |
+| `context` | firewalls with the same context share the logged user |
+| `form_login` | login form (see below) |
+| `http_basic` | `{ realm: 'Secured Area' }` |
+| `access_token` | `{ token_handler: App\Security\ApiTokenHandler, header: Authorization, token_type: Bearer, query_parameter: ~, realm: ~ }` |
+| `custom_authenticators` | list of classes implementing `AuthenticatorInterface` |
+| `remember_me` | `{ lifetime: 604800, name: REMEMBERME, parameter: _remember_me, always: false, path: /, domain: ~, secure: auto, samesite: Lax }`: `parameter` is the checkbox of the login form, `always` sets the cookie on every login |
+| `login_throttling` | `{ max_attempts: 5, interval: 60 }`: login attempts per IP + identifier (and 5 × more per IP) during `interval` seconds, stored in `var/cache/security/throttling/`; the IP is `REMOTE_ADDR` |
+| `logout` | disabled unless declared: `{ path: /logout, target: /, invalidate_session: true, enable_csrf: false, csrf_parameter: _csrf_token, csrf_token_id: logout, clear_cookies: [] }`; the request on `path` is handled by the firewall |
+| `user_checker` | class implementing `UserCheckerInterface` (`checkPreAuth()`, `checkPostAuth()`): banned or disabled accounts |
+| `entry_point` | `form_login`, `http_basic`, `access_token` or a class implementing `EntryPointInterface` |
+
+Paths accept a path (`/login`) or a route name (`app_login`).
+
+When an anonymous user is denied, the entry point of the firewall answers: the login form redirects to `login_path` (the requested URL is restored after the login) or returns a 401 JSON response for AJAX/JSON requests, HTTP Basic returns a 401 with `WWW-Authenticate`, the access token returns a 401 JSON response. A logged user who is denied gets a 403 (except a remembered user on `IS_AUTHENTICATED_FULLY`, who is sent to the login form).
+
+### Login form
+
+| `form_login` option | Default |
+|---|---|
+| `login_path` | `/login` |
+| `check_path` | `login_path` (the `POST` on this path is the login) |
+| `username_parameter` / `password_parameter` | `_username` / `_password` |
+| `enable_csrf` / `csrf_parameter` / `csrf_token_id` | `false` / `_csrf_token` / `authenticate` |
+| `default_target_path` | `/` |
+| `always_use_default_target_path` | `false` |
+| `target_path_parameter` | `_target_path` (relative paths only) |
+| `use_referer` | `false` |
+| `failure_path` | `login_path` |
+
+```php
+#[Route('/login', name: 'app_login', methods: ['GET', 'POST'])]
+public function login(): Response
+{
+    return $this->render('security/login.php', [
+        'last_username' => $this->getLastUsername(),
+        'error' => $this->getLastAuthenticationError(),
+    ]);
+}
+```
+
+The error is a safe message (`Invalid credentials.`, `Invalid CSRF token.`, `Too many failed login attempts, please try again in 1 minute(s).`): an unknown user and a wrong password give the same message.
+
+### Access tokens and custom authenticators
+
+```php
+class ApiTokenHandler implements AccessTokenHandlerInterface
+{
+    public function __construct(private ApiTokenRepository $tokens)
+    {
+    }
+
+    public function getUserFrom(string $accessToken): string|UserInterface
+    {
+        return $this->tokens->findOneBy(['value' => $accessToken])?->getOwner()?->getEmail()
+            ?? throw new BadCredentialsException('Invalid access token.');
+    }
+}
+```
+
+A custom authenticator extends `AbstractAuthenticator`:
+
+```php
+class ApiKeyAuthenticator extends AbstractAuthenticator
+{
+    public function __construct(private UserRepository $users)
+    {
+    }
+
+    public function supports(Request $request): bool
+    {
+        return $request->headers->has('X-API-KEY');
+    }
+
+    public function authenticate(Request $request): Passport
+    {
+        $key = $request->headers->get('X-API-KEY');
+
+        return Passport::selfValidating($key, fn (string $key): ?UserInterface => $this->users->findOneBy(['apiKey' => $key]));
+    }
+}
+```
+
+`new Passport($identifier, $password)` checks the password with the hasher, `Passport::selfValidating($identifier, $loader)` does not. `->csrf($id, $token)`, `->rememberMe()` and `->addCheck(fn (UserInterface $user) => ...)` add checks. `onAuthenticationSuccess()` / `onAuthenticationFailure()` return a `Response` or `null` (the request continues); throw a `CustomUserMessageAuthenticationException` to show your own message.
+
+### Authorization
+
+| Attribute | Granted when |
+|---|---|
+| `ROLE_*` | the user has the role, directly or through `role_hierarchy` |
+| `IS_AUTHENTICATED` | a user is logged in (also `IS_AUTHENTICATED_REMEMBERED`) |
+| `IS_AUTHENTICATED_FULLY` | logged in during this session (not by the remember-me cookie) |
+| `IS_REMEMBERED` | logged in by the remember-me cookie |
+| `PUBLIC_ACCESS` | always |
+| anything else | decided by the voters |
+
+```php
+#[IsGranted('ROLE_ADMIN')]
+class AdminController extends AbstractController
+{
+    #[Route('/admin/posts/{id}')]
+    #[IsGranted('ROLE_EDITOR')]
+    #[IsGranted('ROLE_SUPER_ADMIN', statusCode: 404, message: 'Not found')]
+    public function show(int $id): Response
+    {
+        $post = $this->posts->find($id) ?? throw $this->createNotFoundException();
+        $this->denyAccessUnlessGranted('POST_EDIT', $post);
+
+        return $this->render('admin/post.php', ['post' => $post]);
+    }
+
+    #[Route('/admin/sections/{section}')]
+    #[IsGranted('SECTION_ACCESS', subject: 'section')]
+    public function section(string $section): Response
+    {
+        return $this->render('admin/section.php', ['section' => $section]);
+    }
+}
+```
+
+`#[IsGranted]` (class or method, repeatable) runs before the controller. `subject` is the name of a route parameter (or a list of names): the voter receives its raw value (`'news'`, `'42'`), so load entities in the controller and use `denyAccessUnlessGranted()` to vote on them. `statusCode` replaces the 403 by another status (404 hides the page) and never redirects to the login form. `access_control` rules are checked on every request, the first matching rule applies (`path`, `host`, `methods`, `ips`, `roles`); the user needs one of the `roles`.
+
+A voter is a class of `src/` with `#[AsVoter(priority: 0)]` extending `AbstractVoter` (`make:voter Post` generates `src/Security/Voter/PostVoter.php` with `POST_VIEW`, `POST_EDIT` and `POST_DELETE`):
+
+```php
+#[AsVoter]
+class PostVoter extends AbstractVoter
+{
+    protected function supports(string $attribute, mixed $subject): bool
+    {
+        return $attribute === 'POST_EDIT' && $subject instanceof Post;
+    }
+
+    protected function voteOnAttribute(string $attribute, mixed $subject, TokenInterface $token): bool
+    {
+        return $subject->getAuthor() === $token->getUser();
+    }
+}
+```
+
+`access_decision_manager: { strategy: affirmative, allow_if_all_abstain: false, allow_if_equal_granted_denied: true }`: `affirmative` (one voter grants), `consensus` (more grants than denials), `unanimous` (no voter denies), `priority` (the first voter that does not abstain). Voters can also be listed in `voters: [App\Security\MyVoter]`.
+
+### Helpers
+
+| Controller | View | |
+|---|---|---|
+| `getUser()` | `app_user()` | the logged user or `null` |
+| `isGranted($attribute, $subject)` | `is_granted($attribute, $subject)` | `bool` |
+| `denyAccessUnlessGranted($attribute, $subject, $message)` | | throws an `AccessDeniedException` (403 or entry point) |
+| `getLastUsername()` | `last_username()` | last submitted username |
+| `getLastAuthenticationError()` | `last_authentication_error()` | last login error message |
+| `loginUser($user, $firewall, $rememberMe)` | | logs a user in (after a registration...) |
+| `logoutUser()` | `logout_path()` | logs out and returns the redirection / URL of the logout of the firewall (with the CSRF token when enabled, `null` without `logout`) |
+
+Outside controllers, inject `NeoPHP\Package\Security\Contract\SecurityInterface`.
+
+### Events
+
+| Event | When |
+|---|---|
+| `LoginSuccessEvent` | after a successful authentication (`getUser()`, `getToken()`, `getFirewall()`, `getAuthenticator()`, `setResponse()`) |
+| `LoginFailureEvent` | after a failed authentication (`getException()`, `setResponse()`) |
+| `LogoutEvent` | on logout (`getToken()`, `setResponse()`) |
+
 ## Session, cookies and flash messages
 
 They are configured in `config/framework/app.yaml`:
@@ -2209,6 +2467,7 @@ src/
 ├── packages/
 │   ├── Dotenv         .env files loader
 │   ├── Orm            entities, unit of work, repositories, query builders, proxies, migrations
+│   ├── Security       firewalls, authenticators, user providers, password hashers, voters, #[IsGranted]
 │   └── Yaml           YAML parser
 └── process/
     ├── Console        neo command line and commands discovery
@@ -2247,5 +2506,6 @@ Feature/Helper/Listener/FeatureListener.php     (optional)
 - Routing: attribute routes discovered with the kernel `ClassFinder` and routes cache stored with `ResourceCache`; an old routes cache is rebuilt automatically (v1.9.1).
 - Validator: constraints usable as attributes or objects, validation of objects, values and arrays, groups, `Valid`, `All`, `Collection`, `Callback`, custom constraints with autowired validators, `validate()` in controllers, 422 JSON response for `ValidationFailedException` (v1.10.0).
 - Database: PDO connections configured in `database.yaml` with a URL or parameters (MySQL / MariaDB, PostgreSQL, SQLite), several connections, query and fetch methods, `insert()` / `update()` / `delete()`, array parameters expanded, nested transactions, `getConnection()` in controllers, `database:create`, `database:drop` and `database:query` commands; `neo install` adds the missing variables to an existing `.env` (v1.11.0).
-- ORM package: entities mapped with attributes, `ManyToOne` / `OneToMany` / `OneToOne` / `ManyToMany` relations with lazy loading (generated proxies, lazy collections), cascade and orphan removal, unit of work with identity map and change tracking, repositories, entity and SQL query builders, lifecycle callbacks and events, enum / JSON / date / decimal types, `make:entity`, `make:repository`, `make:migration` (diff between the entities and the database), `migration:migrate`, `migration:rollback` and `migration:status` commands, `config/packages/orm.yaml` (v1.12.0).
-- Forms and CSRF: form classes extending `AbstractForm` mapped to an entity or an array, field types (text, number, checkbox, choice, enum, entity, date, file, collection, repeated, submit...), conversion and data mapping, validation with the field and entity constraints, `default` and `bootstrap5` themes with `form_*` view helpers, `make:form` (fields generated from an entity); CSRF component with tokens in the session, automatic token in forms, `csrf_token()` / `csrf_field()` helpers, `isCsrfTokenValid()` in controllers and `#[Csrf]` attribute; `File` and `Image` constraints (v1.13.0).
+- ORM package: entities mapped with attributes, `ManyToOne` / `OneToMany` / `OneToOne` / `ManyToMany` relations with lazy loading (generated proxies, lazy collections), cascade and orphan removal, unit of work with identity map and change tracking, repositories, entity and SQL query builders, lifecycle callbacks and events, enum / JSON / date / decimal types, `make:entity`, `make:repository`, `make:migration` (diff between the entities and the database), `migration:migrate`, `migration:rollback` and `migration:status` commands, `config/packages/orm.yaml` (v1.11.0).
+- Forms and CSRF: form classes extending `AbstractForm` mapped to an entity or an array, field types (text, number, checkbox, choice, enum, entity, date, file, collection, repeated, submit...), conversion and data mapping, validation with the field and entity constraints, `default` and `bootstrap5` themes with `form_*` view helpers, `make:form` (fields generated from an entity); CSRF component with tokens in the session, automatic token in forms, `csrf_token()` / `csrf_field()` helpers, `isCsrfTokenValid()` in controllers and `#[Csrf]` attribute; `File` and `Image` constraints (v1.12.0).
+- Security package: firewalls with login form, HTTP Basic, access tokens, custom authenticators and remember-me cookie, entity / memory / chain / custom user providers, password hashers with automatic rehash, login throttling, user checkers, logout with optional CSRF token, roles with hierarchy, voters (`#[AsVoter]`), `#[IsGranted]`, `access_control`, access decision strategies, `getUser()` / `isGranted()` / `denyAccessUnlessGranted()` / `loginUser()` / `logoutUser()` in controllers, `app_user()` / `is_granted()` / `logout_path()` view helpers, login events, `make:user`, `make:auth`, `make:voter` and `security:hash-password` commands, `config/packages/security.yaml` (v1.13.0).
