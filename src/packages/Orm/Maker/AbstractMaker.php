@@ -8,6 +8,14 @@ use NeoPHP\Package\Orm\Exception\OrmException;
 
 abstract class AbstractMaker
 {
+    public const RESERVED = [
+        'abstract', 'and', 'array', 'as', 'bool', 'break', 'callable', 'case', 'catch', 'class', 'clone', 'const', 'continue', 'declare', 'default', 'do', 'echo', 'else',
+        'elseif', 'empty', 'enddeclare', 'endfor', 'endforeach', 'endif', 'endswitch', 'endwhile', 'enum', 'eval', 'exit', 'extends', 'false', 'final', 'finally', 'float', 'fn',
+        'for', 'foreach', 'function', 'global', 'goto', 'if', 'implements', 'include', 'instanceof', 'insteadof', 'int', 'interface', 'isset', 'iterable', 'list', 'match',
+        'mixed', 'namespace', 'never', 'new', 'null', 'object', 'or', 'parent', 'print', 'private', 'protected', 'public', 'readonly', 'require', 'resource', 'return', 'self',
+        'static', 'string', 'switch', 'throw', 'trait', 'true', 'try', 'unset', 'use', 'var', 'void', 'while', 'xor', 'yield',
+    ];
+
     public function __construct(protected string $path, protected string $namespace)
     {
     }
@@ -36,6 +44,12 @@ abstract class AbstractMaker
 
         if (preg_match('/^([A-Z][A-Za-z0-9_]*\\\\)*[A-Z][A-Za-z0-9_]*$/', $name) !== 1) {
             throw new OrmException('The name "{name}" is not a valid class name: use StudlyCase (Post, BlogPost, Blog\Post).', 0, null, ['name' => $name]);
+        }
+
+        foreach (explode('\\', $name . $suffix) as $segment) {
+            if (in_array(strtolower($segment), self::RESERVED, true)) {
+                throw new OrmException('The name "{name}" is a reserved PHP word: choose another class name.', 0, null, ['name' => $segment]);
+            }
         }
 
         $class = trim($this->namespace, '\\') . '\\' . $name . $suffix;
