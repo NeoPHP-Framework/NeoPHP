@@ -151,6 +151,8 @@ When a command fails, the message is displayed in an error block; `-v` adds the 
 | `make:auth [SecurityController] [--twig]` | generates a login controller and its template |
 | `make:voter Post` | generates `src/Security/Voter/PostVoter.php` |
 | `security:hash-password [password] [UserClass]` | hashes a password (asked without echo when omitted) |
+| `mailer:test email [--dsn=...]` | sends a test email (`-v` shows the SMTP dialogue) |
+| `make:email Welcome` | generates `src/Email/WelcomeEmail.php` |
 | `debug:container [filter\|id] [-d] [-p]` | lists the services of the container or shows one of them |
 
 The `make:*` commands never overwrite an existing file, unless `--force` is used.
@@ -2381,6 +2383,148 @@ $this->addFlash('success', 'Your profile has been saved.');
 
 `FlashInterface`: `add()`, `get($type)` and `all()` (read and remove), `peek($type)` and `peekAll()` (read only), `has()`, `clear()`.
 
+## Mailer
+
+The Mailer component builds MIME emails (UTF-8, HTML and text, attachments, embedded images) and sends them through SMTP, or writes them to files or to the log in development. No external library is used: the SMTP client is native, and `ext-openssl` is needed for TLS.
+
+### Configuration
+
+`config/framework/mailer.yaml`:
+
+```yaml
+dsn: '%env(MAILER_DSN)%'
+
+from: '%env(APP_NAME)% <noreply@example.com>'   # used when an email has no from()
+
+envelope:
+  sender: ~                                     # forces the envelope sender (MAIL FROM, bounces)
+  recipients: '%env(csv:MAILER_RECIPIENTS)%'    # redirects every email to these addresses
+
+headers: {}                                     # headers added to every email, e.g. X-App: shop
+```
+
+`.env`:
+
+```dotenv
+MAILER_DSN="null://null"
+MAILER_RECIPIENTS=
+```
+
+| DSN | Transport |
+|---|---|
+| `smtp://user:password@smtp.example.com:587` | SMTP, STARTTLS when the server offers it |
+| `smtps://user:password@smtp.example.com` | SMTP over implicit TLS (port 465 by default; `smtp://…:465` works too) |
+| `file://default` | writes each email as a `.eml` file in `var/mails/` (`file:///absolute/path` for another directory) |
+| `log://default` | writes one line per email in the logger (`log://debug` for another level) |
+| `null://null` | sends nothing (tests) |
+
+Special characters in the user or the password must be URL-encoded (`@` → `%40`, `/` → `%2F`, `:` → `%3A`, `?` → `%3F`).
+
+These SMTP options go in the query string, for example `smtp://…:587?verify_peer=0&timeout=30`:
+
+| Option | Default | Description |
+|---|---|---|
+| `auto_tls` | `1` | use STARTTLS when the server offers it |
+| `require_tls` | `0` | fail when the connection cannot be encrypted |
+| `verify_peer` | `1` | check the server certificate (`0` for a self-signed certificate) |
+| `auth_mode` | auto | `plain`, `login` or `cram-md5` (by default, the modes offered by the server are tried in the order CRAM-MD5, LOGIN, PLAIN) |
+| `allow_insecure_auth` | `0` | allow PLAIN / LOGIN over an unencrypted connection (always allowed on localhost) |
+| `timeout` | `10` | connection and read timeout, in seconds |
+| `local_domain` | host name | domain sent with EHLO |
+
+The connection stays open between two emails sent by the same process, and is closed at the end of the request or command.
+
+In development, `MAILER_RECIPIENTS="me@example.com"` in `.env.local` sends every email to you, whatever the To / Cc / Bcc (the headers are kept, only the envelope changes).
+
+### Sending an email
+
+```php
+use NeoPHP\Component\Mailer\Mime\Address;
+use NeoPHP\Component\Mailer\Mime\Email;
+
+class OrderController extends AbstractController
+{
+    public function confirm(Order $order): Response
+    {
+        $email = (new Email())
+            ->from(new Address('shop@example.com', 'My Shop'))
+            ->to($order->getCustomerEmail())
+            ->bcc('orders@example.com')
+            ->replyTo('support@example.com')
+            ->subject('Your order #' . $order->getId())
+            ->html('<h1>Thank you!</h1><img src="cid:logo.png">')
+            ->text('Thank you!')
+            ->embedFromPath($this->get('kernel.root_path') . '/assets/img/logo.png')
+            ->attachFromPath('/path/to/invoice.pdf', 'invoice-' . $order->getId() . '.pdf')
+            ->priority(Email::PRIORITY_HIGH)
+            ->addHeader('X-Order', (string) $order->getId());
+
+        $this->sendEmail($email);
+
+        return $this->redirectToRoute('order_done');
+    }
+}
+```
+
+`MailerInterface` can also be injected in any service: `$mailer->send($email)`. It returns a `SentMessage`, with `getMessageId()`, `getEnvelope()`, `getTransportId()` (the SMTP queue id, or the `.eml` file) and `getDebug()` (the SMTP dialogue, without passwords). It returns `null` when a listener rejected the email.
+
+| Method | Description |
+|---|---|
+| `from()`, `to()`, `cc()`, `bcc()`, `replyTo()` | replace the addresses; `addFrom()`, `addTo()`, `addCc()`, `addBcc()`, `addReplyTo()` add to them. Accepts `'a@b.com'`, `'Name <a@b.com>'` or `Address` objects |
+| `sender()`, `returnPath()` | Sender header, and the address that receives bounces |
+| `subject()`, `text()`, `html()` | content. Without `text()`, a text version is generated from the HTML |
+| `attach($body, $name, $type)`, `attachFromPath($path, $name, $type)` | attachments. The content type is guessed from the extension when omitted |
+| `embed($body, $name, $type)`, `embedFromPath($path, $name)` | inline images, referenced in the HTML with `src="cid:name"` |
+| `priority(1..5)`, `date()`, `addHeader()`, `removeHeader()` | extras |
+
+Line breaks in addresses, the subject and headers are rejected, which prevents header injection. Non-ASCII names, subjects and file names are encoded (RFC 2047 / 2231). Bcc addresses are only used in the envelope and never appear in the message.
+
+### Email classes
+
+```bash
+php bin/neo make:email Welcome          # src/Email/WelcomeEmail.php
+```
+
+```php
+class WelcomeEmail extends Email
+{
+    public function __construct(string $to, string $name = '')
+    {
+        $this->to($to)
+            ->subject('Welcome')
+            ->text('Hello ' . $name . '!')
+            ->html('<p>Hello <strong>' . htmlspecialchars($name, ENT_QUOTES) . '</strong>!</p>');
+    }
+}
+
+$this->sendEmail(new WelcomeEmail('alice@example.com', 'Alice'));
+```
+
+### Events
+
+| Event | When | Usage |
+|---|---|---|
+| `MessageEvent` | before sending | change the email (`getEmail()`) or the envelope (`setEnvelope()`), or cancel with `reject()` |
+| `SentMessageEvent` | after sending | `getMessage()` returns the `SentMessage` |
+| `FailedMessageEvent` | when the transport fails | `getError()`; the exception is then thrown |
+
+```php
+#[AsListener]
+public function addAuditCopy(MessageEvent $event): void
+{
+    $event->getEmail()->addBcc('audit@example.com');
+}
+```
+
+### Testing the configuration
+
+```bash
+php bin/neo mailer:test me@example.com -v
+php bin/neo mailer:test me@example.com --dsn="smtp://user:pass@smtp.example.com:587" -v
+```
+
+`-v` shows the dialogue with the SMTP server (the passwords are hidden).
+
 ## YAML
 
 ```php
@@ -2621,6 +2765,7 @@ src/
 │   ├── Http           Request, Response, JsonResponse, RedirectResponse
 │   ├── Kernel         boot, request lifecycle, kernel events, class discovery, cache, cache:clear
 │   ├── Logger         PSR-3 logger, channels, rotation, archives
+│   ├── Mailer         MIME emails, SMTP / file / log / null transports, events, mailer:test, make:email
 │   ├── Middleware     middlewares, pipeline, aliases and groups
 │   ├── Routing        YAML and attribute routes, cache, matching, URL generation
 │   ├── Service        config/services.yaml, resources, aliases, interfaces
@@ -2675,3 +2820,4 @@ Feature/Helper/Listener/FeatureListener.php     (optional)
 - Security package: firewalls with login form, HTTP Basic, access tokens, custom authenticators and remember-me cookie, entity / memory / chain / custom user providers, password hashers with automatic rehash, login throttling, user checkers, logout with optional CSRF token, roles with hierarchy, voters (`#[AsVoter]`), `#[IsGranted]`, `access_control`, access decision strategies, `getUser()` / `isGranted()` / `denyAccessUnlessGranted()` / `loginUser()` / `logoutUser()` in controllers, `app_user()` / `is_granted()` / `logout_path()` view helpers, login events, `make:user`, `make:auth`, `make:voter` and `security:hash-password` commands, `config/packages/security.yaml` (v1.13.0).
 - Debug package: `dump()` and `dd()` global functions, collapsible HTML dumps inserted in the response, colored console dumps, `dump()` view helper, dumps disabled when `APP_DEBUG` is false, exception context and stack trace arguments dumped on the error page, `debug:container` command, `config/packages/debug.yaml`; the container exposes `getDefinitions()` and `getAliases()` (v1.14.0).
 - Console: commands declared with `#[AsCommand]` and extending `AbstractConsole` (`configure()` / `do()`), arguments and options definitions with validation, global options (`--help`, `-q`, `-v`/`-vv`/`-vvv`, `--force`, `-n`, `--env`, `--ansi`/`--no-ansi`), the same help layout for every command with examples, styled output (titles, tables, message blocks), questions (`ask`, `confirm`, `choice`, `secret`), progress bar, commands grouped by namespace, abbreviations and "Did you mean" suggestions, command aliases, `make:command`, commands discovered anywhere in `src/`, `--env` read by `bin/neo`; `AbstractCommand` is removed and every command is rewritten (v1.15.0).
+- Mailer component: fluent `Email` (addresses, UTF-8 subject and names, HTML and text with a text version generated from the HTML, attachments, embedded images, priority, custom headers, protection against header injection), native SMTP transport (STARTTLS / implicit TLS, AUTH PLAIN / LOGIN / CRAM-MD5, connection reused), `file`, `log` and `null` transports configured with `MAILER_DSN`, default sender and headers, envelope redirection with `MAILER_RECIPIENTS`, `MessageEvent` / `SentMessageEvent` / `FailedMessageEvent`, `sendEmail()` in controllers, `mailer:test` and `make:email` commands, `config/framework/mailer.yaml` (v1.16.0).
