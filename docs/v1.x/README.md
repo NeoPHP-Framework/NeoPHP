@@ -15,6 +15,7 @@ NeoPHP v1.x is the base of the framework. It has no dependency other than PHP 8.
 - a dependency injection container with autowiring, `#[Autowire]`, `#[Inject]` and `config/services.yaml`
 - a configuration loaded from `.env` files and `config/**/*.yaml`, with placeholders (`%kernel.root_path%`, `%env(APP_NAME)%`...)
 - events and listeners (PSR-14 style), with the kernel events
+- a validator with constraints usable as attributes (`#[Assert\NotBlank]`) or objects (`new NotBlank()`)
 - a console (`php bin/neo`) that generates the project files
 
 ## Installation (development)
@@ -269,6 +270,7 @@ A controller returns a `Response`. For convenience, a `string` becomes an HTML r
 | `getCookies()` | `CookieInterface` |
 | `addFlash($type, $message)` | adds a flash message |
 | `dispatch($event)` | dispatches an event (see [Events](#events)) |
+| `validate($value, $constraints, $groups)` | `ViolationList` (see [Validator](#validator)) |
 
 `AbstractController` has no method of its own: it is made of traits, and each feature ships its trait in `Feature/Helper/Controller/`:
 
@@ -281,6 +283,7 @@ A controller returns a `Response`. For convenience, a `string` becomes an HTML r
 | `Http/Helper/Controller/HttpController` | `json()`, `redirect()`, `createNotFoundException()`, `createAccessDeniedException()` |
 | `Routing/Helper/Controller/RoutingController` | `generateUrl()`, `redirectToRoute()` |
 | `Session/Helper/Controller/SessionController` | `getSession()` |
+| `Validator/Helper/Controller/ValidatorController` | `validate()` |
 | `View/Helper/Controller/ViewController` | `render()`, `renderView()` |
 
 ```php
@@ -293,6 +296,7 @@ abstract class AbstractController implements ControllerInterface
     use HttpController;
     use RoutingController;
     use SessionController;
+    use ValidatorController;
     use ViewController;
 }
 ```
@@ -934,6 +938,192 @@ subscribers:
 
 They are in `NeoPHP\Component\Kernel\Event\` and give access to `getKernel()` and `getRequest()`. The framework uses them too: the queued cookies are added and the session is saved by listeners of `ResponseEvent` (`Cookie/Helper/Listener/`, `Session/Helper/Listener/`).
 
+## Validator
+
+Constraints are classes: the same class is used as an attribute or as an object.
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Dto;
+
+use NeoPHP\Component\Validator\Constraint as Assert;
+
+class SignupDto
+{
+    #[Assert\NotBlank]
+    #[Assert\Length(min: 3, max: 20)]
+    public ?string $username = null;
+
+    #[Assert\NotBlank]
+    #[Assert\Email]
+    public ?string $email = null;
+
+    #[Assert\Length(min: 8)]
+    public ?string $password = null;
+
+    #[Assert\EqualTo(propertyPath: 'password', message: 'The passwords do not match.')]
+    public ?string $confirm = null;
+
+    #[Assert\Valid]
+    public ?AddressDto $address = null;
+}
+```
+
+```php
+$violations = $this->validate($dto);
+
+if (count($violations) > 0) {
+    return $this->json(['errors' => $violations->toArray()], 422);
+}
+```
+
+Outside a controller, inject `NeoPHP\Component\Validator\Contract\ValidatorInterface`.
+
+| Call | Validates |
+|---|---|
+| `validate($object)` | the constraints declared with attributes on the object (properties and class) |
+| `validate($value, new Email())` | a value with one constraint |
+| `validate($value, [new NotBlank(), new Length(min: 3)])` | a value with several constraints |
+| `validate($data, ['email' => [new NotBlank(), new Email()], 'age' => new Range(min: 18)])` | an array (or object) field by field; a missing field is `null` |
+| `validateProperty($object, 'email')` | one property of an object |
+| `validateOrFail(...)` | same as `validate()`, throws a `ValidationFailedException` (HTTP 422) when it fails |
+
+### Violations
+
+`validate()` returns a `ViolationList`:
+
+| Method | Returns |
+|---|---|
+| `count($violations)` | number of violations |
+| `has()` / `has('email')` | whether there is a violation (for a path) |
+| `first()` / `first('email')` | first message |
+| `messages('email')` | messages of a path |
+| `get('email')` | `Violation` objects of a path (`getMessage()`, `getPropertyPath()`, `getInvalidValue()`, `getParameters()`, `getConstraint()`) |
+| `toArray()` | `['email' => ['This value is not a valid email address.'], ...]` |
+
+Paths: `email`, `address.city` (with `Valid`), `tags[1]` (with `All`), `data[email]` (with `Collection`).
+
+For a request that expects JSON, an uncaught `ValidationFailedException` returns a 422 response with the violations:
+
+```json
+{"error": {"status": 422, "message": "The data is not valid: 1 violation(s).", "violations": {"username": ["This value should not be blank."]}}}
+```
+
+### Constraints
+
+| Constraint | Options |
+|---|---|
+| `NotBlank` | `allowNull`, `trim` (blank: `null`, `''`, `[]`, `false`) |
+| `Blank`, `NotNull`, `IsNull`, `IsTrue`, `IsFalse` | |
+| `Type` | `type` (`string`, `int`, `float`, `bool`, `array`, `numeric`, `scalar`, `iterable`, `callable`, `object`, `alpha`, `digit`, `alnum` or a class; several allowed) |
+| `Length` | `exactly`, `min`, `max` (characters, UTF-8) |
+| `Count` | `exactly`, `min`, `max` (elements of an array or `Countable`) |
+| `Range` | `min`, `max` (numbers or dates) |
+| `EqualTo`, `NotEqualTo`, `GreaterThan`, `GreaterThanOrEqual`, `LessThan`, `LessThanOrEqual` | `value` or `propertyPath` (compares with another property: `propertyPath: 'password'`) |
+| `Positive`, `PositiveOrZero`, `Negative`, `NegativeOrZero` | |
+| `Email`, `Uuid`, `Json`, `Date` (`Y-m-d`) | |
+| `Url` | `protocols` (default `['http', 'https']`) |
+| `Ip` | `version` (`4`, `6` or `all`) |
+| `DateTime` | `format` (default `Y-m-d H:i:s`) |
+| `Regex` | `pattern`, `match` (`false`: the value must not match) |
+| `Choice` | `choices` or `callback`, `multiple`, `min`, `max`, `strict` |
+| `All` | `constraints` applied to each element |
+| `Collection` | `fields` (`['email' => [...]]`), `allowExtraFields`, `allowMissingFields` |
+| `Valid` | validates the nested object (or each object of an array) |
+| `Callback` | `callback`: method of the object or callable |
+
+Every constraint accepts `message` (or `minMessage`, `maxMessage`...) and `groups`. Messages use placeholders: `{{ value }}`, `{{ limit }}`, `{{ min }}`, `{{ max }}`, `{{ compared_value }}`, `{{ choices }}`, `{{ type }}`. Except `NotBlank`, `NotNull` and `IsNull`, constraints accept `null` and `''`: add `NotBlank` to make a value required.
+
+### Groups
+
+A constraint belongs to the `Default` group, unless `groups` is given. `validate()` validates the `Default` group, unless groups are given:
+
+```php
+#[Assert\NotBlank(groups: ['create'])]
+public ?string $password = null;
+```
+
+```php
+$this->validate($dto, null, ['Default', 'create']);
+```
+
+### Callback
+
+```php
+#[Assert\Callback('validatePeriod')]
+class BookingDto
+{
+    public ?\DateTimeImmutable $start = null;
+
+    public ?\DateTimeImmutable $end = null;
+
+    public function validatePeriod(ExecutionContext $context): void
+    {
+        if ($this->start !== null && $this->end !== null && $this->end < $this->start) {
+            $context->addViolation('The end must be after the start.', [], 'end');
+        }
+    }
+}
+```
+
+On a property, the method receives `($value, ExecutionContext $context)`. `new Callback(fn ($value, $context) => ...)` works with a closure.
+
+### Custom constraints
+
+A constraint extends `AbstractConstraint`. Its validator is the class with the same name followed by `Validator` (override `validatedBy()` to change it). The validator is built by the container: its dependencies are autowired.
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Validator;
+
+use Attribute;
+use NeoPHP\Component\Validator\Contract\AbstractConstraint;
+
+#[Attribute(Attribute::TARGET_PROPERTY)]
+class UniqueUsername extends AbstractConstraint
+{
+    public string $message = 'The username {{ value }} is already used.';
+}
+```
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Validator;
+
+use NeoPHP\Component\Validator\Context\ExecutionContext;
+use NeoPHP\Component\Validator\Contract\AbstractConstraintValidator;
+use NeoPHP\Component\Validator\Contract\ConstraintInterface;
+
+class UniqueUsernameValidator extends AbstractConstraintValidator
+{
+    public function __construct(protected UserRepository $users)
+    {
+    }
+
+    public function validate(mixed $value, ConstraintInterface $constraint, ExecutionContext $context): void
+    {
+        if ($this->isEmpty($value)) {
+            return;
+        }
+
+        if ($this->users->existsByUsername((string) $value)) {
+            $context->addViolation($constraint->message, ['value' => static::formatValue($value)]);
+        }
+    }
+}
+```
+
+`ExecutionContext` gives `addViolation($message, $parameters, $path)`, `getObject()` (object being validated), `getRoot()`, `getPropertyPath()`, `getGroups()` and `validate($value, $constraints, $path)` to validate a nested value.
+
 ## Session, cookies and flash messages
 
 They are configured in `config/framework/app.yaml`:
@@ -1242,6 +1432,7 @@ src/
 │   ├── Middleware     middlewares, pipeline, aliases and groups
 │   ├── Routing        YAML and attribute routes, cache, matching, URL generation
 │   ├── Service        config/services.yaml, resources, aliases, interfaces
+│   ├── Validator      constraints (attributes or objects), violations, groups
 │   ├── Session        native PHP session, started on demand
 │   └── View           PHP and Twig templates, view helpers discovery
 ├── packages/
@@ -1282,3 +1473,4 @@ Feature/Helper/Listener/FeatureListener.php     (optional)
 - Services: `#[Autowire]` on parameters, `#[Inject]` on properties, `config/services.yaml` (resources, arguments, calls, factories, aliases), shared services by default, interfaces bound to their single implementation, `service:list` command (v1.8.0).
 - Events: PSR-14 style dispatcher, `#[AsListener]`, subscribers, `event.yaml`, stoppable events, kernel events (`RequestEvent`, `ControllerEvent`, `ResponseEvent`, `ExceptionEvent`, `TerminateEvent`) replacing `TerminableInterface`, `dispatch()` in controllers, `event:list` command (v1.9.0).
 - Routing: attribute routes discovered with the kernel `ClassFinder` and routes cache stored with `ResourceCache`; an old routes cache is rebuilt automatically (v1.9.1).
+- Validator: constraints usable as attributes or objects, validation of objects, values and arrays, groups, `Valid`, `All`, `Collection`, `Callback`, custom constraints with autowired validators, `validate()` in controllers, 422 JSON response for `ValidationFailedException` (v1.10.0).
