@@ -96,34 +96,159 @@ var/sessions/
 
 ## Console
 
+```bash
+php bin/neo                      # lists the commands, grouped by namespace
+php bin/neo list make            # lists the commands of a namespace (also: php bin/neo make)
+php bin/neo make:entity --help   # help of a command (also: php bin/neo help make:entity)
+php bin/neo m:ent Post           # abbreviations are resolved when they are not ambiguous
+php bin/neo --version
+```
+
+A mistyped command shows the closest names (`Did you mean this?`). Exit codes: `0` success, `1` failure, `2` invalid input (unknown command, option or missing argument).
+
+### Global options
+
+Every command accepts:
+
+| Option | Description |
+|---|---|
+| `-h, --help` | displays the help of the command: description, usage, arguments, options, help and examples |
+| `-q, --quiet` | no output (errors are still displayed), implies `--no-interaction` |
+| `-v`, `-vv`, `-vvv`, `--verbose[=1\|2\|3]` | verbose, very verbose and debug output |
+| `-f, --force` | force the operation (overwrite the generated files, skip the confirmations) |
+| `-n, --no-interaction` | never ask a question: the default answers are used |
+| `-e, --env=ENV` | the environment (`APP_ENV`), read by `bin/neo` before the kernel boots |
+| `--ansi`, `--no-ansi` | force or disable the colors (`NO_COLOR` is also supported) |
+
+When a command fails, the message is displayed in an error block; `-v` adds the exception class and file, `-vvv` the stack trace.
+
+### Commands
+
 | Command | Description |
 |---|---|
-| `php bin/neo` | lists the commands |
-| `php bin/neo install [--force]` | generates the project files |
-| `php bin/neo serve [--host=127.0.0.1] [--port=8000]` | starts the PHP development server |
-| `php bin/neo route:list` | lists the routes |
-| `php bin/neo middleware:list` | lists the global middlewares, the aliases and the groups |
-| `php bin/neo service:list [filter]` | lists the services, the aliases and the interfaces bound automatically |
-| `php bin/neo event:list [filter]` | lists the events and their listeners in the order they are called |
-| `php bin/neo cache:clear` | clears `var/cache/` (routes, Twig templates...) |
-| `php bin/neo asset:reload [--minify]` | compiles `assets/` into `public/builds/` and rebuilds the manifest |
-| `php bin/neo database:create [--connection=name] [--if-not-exists]` | creates the database of a connection |
-| `php bin/neo database:drop --force [--connection=name] [--if-exists]` | drops the database of a connection |
-| `php bin/neo database:query "SQL" [--connection=name]` | executes a SQL query and displays the result |
-| `php bin/neo make:entity Post [field:type ...] [--force]` | generates an entity and its repository |
-| `php bin/neo make:repository Post [--force]` | generates the repository of an entity |
-| `php bin/neo make:migration [--empty] [--description="..."]` | generates a migration from the differences between the entities and the database |
-| `php bin/neo migration:migrate [--dry-run]` | executes the pending migrations |
-| `php bin/neo migration:rollback [--steps=1] [--dry-run]` | rolls back the last executed migrations |
-| `php bin/neo migration:status` | lists the migrations and their status |
-| `php bin/neo make:form Post [Entity] [--force]` | generates `src/Form/PostForm.php`, with the fields of the entity when given |
-| `php bin/neo make:user [User] [--property=email] [--force]` | generates a user entity and its repository |
-| `php bin/neo make:auth [SecurityController] [--twig] [--force]` | generates a login controller and its template |
-| `php bin/neo make:voter Post [--force]` | generates `src/Security/Voter/PostVoter.php` |
-| `php bin/neo security:hash-password secret [UserClass]` | hashes a password with the configured hasher |
-| `php bin/neo debug:container [filter\|id] [--dump] [--parameters]` | lists the services of the container or shows one of them |
+| `help [command]` | displays the help of a command |
+| `list [namespace]` | lists the commands |
+| `install` | generates the project files (`--force` overwrites them) |
+| `serve [--host=127.0.0.1] [-p 8000]` | starts the PHP development server |
+| `route:list [filter]` (`routes`) | lists the routes |
+| `middleware:list` | lists the global middlewares, the aliases and the groups |
+| `service:list [filter]` | lists the services, the aliases and the interfaces bound automatically |
+| `event:list [filter]` | lists the events and their listeners in the order they are called |
+| `cache:clear` (`cc`) | clears `var/cache/` (routes, Twig templates...) |
+| `asset:reload [-m]` | compiles `assets/` into `public/builds/` and rebuilds the manifest (`--minify`) |
+| `database:create [-c name] [--if-not-exists]` (`db:create`) | creates the database of a connection |
+| `database:drop [-c name] [--if-exists]` (`db:drop`) | drops the database of a connection, after a confirmation (or `--force`) |
+| `database:query "SQL" [-c name]` (`db:query`) | executes a SQL query and displays the result |
+| `make:command Class [name]` | generates a console command in `src/Command/` |
+| `make:entity Post [field:type ...]` | generates an entity and its repository |
+| `make:repository Post` | generates the repository of an entity |
+| `make:migration [--empty] [-d "..."]` | generates a migration from the differences between the entities and the database |
+| `migration:migrate [--dry-run]` (`migrate`) | executes the pending migrations |
+| `migration:rollback [-s 1] [--dry-run]` (`rollback`) | rolls back the last executed migrations |
+| `migration:status` | lists the migrations and their status |
+| `make:form Post [Entity]` | generates `src/Form/PostForm.php`, with the fields of the entity when given |
+| `make:user [User] [-p email]` | generates a user entity and its repository |
+| `make:auth [SecurityController] [--twig]` | generates a login controller and its template |
+| `make:voter Post` | generates `src/Security/Voter/PostVoter.php` |
+| `security:hash-password [password] [UserClass]` | hashes a password (asked without echo when omitted) |
+| `debug:container [filter\|id] [-d] [-p]` | lists the services of the container or shows one of them |
 
-Each feature can ship its own commands in `Feature/Helper/Console/`: they are discovered automatically, in the framework and in the application (`src/**/Helper/Console/`). A command extends `NeoPHP\Process\Console\Contract\AbstractCommand`.
+The `make:*` commands never overwrite an existing file, unless `--force` is used.
+
+### Writing a command
+
+```bash
+php bin/neo make:command SendReport                    # app:send-report
+php bin/neo make:command Admin/CleanUsers admin:clean-users
+```
+
+A command is a class declared with `#[AsCommand]` that extends `AbstractConsole`. Arguments, options, help and examples are declared in `configure()`, the work is done in `do()`, which returns an exit code:
+
+```php
+namespace App\Command;
+
+use NeoPHP\Process\Console\Attribute\AsCommand;
+use NeoPHP\Process\Console\Contract\AbstractConsole;
+use NeoPHP\Process\Console\Contract\InputInterface;
+use NeoPHP\Process\Console\Contract\OutputInterface;
+use NeoPHP\Process\Console\IO\InputArgument;
+use NeoPHP\Process\Console\IO\InputOption;
+
+#[AsCommand(name: 'app:send-report', description: 'Sends the monthly report', aliases: ['report'])]
+class SendReportCommand extends AbstractConsole
+{
+    public function __construct(protected ReportService $reports)
+    {
+    }
+
+    protected function configure(InputInterface $input, OutputInterface $output): void
+    {
+        $input->addArgument('month', InputArgument::REQUIRED, 'The month (YYYY-MM)');
+        $input->addArgument('emails', InputArgument::OPTIONAL | InputArgument::IS_ARRAY, 'The recipients');
+        $input->addOption('format', null, InputOption::VALUE_REQUIRED, 'pdf or csv', 'pdf');
+        $input->addOption('dry-run', null, InputOption::VALUE_NONE, 'Do not send anything');
+        $this->setHelp('The report is sent to the administrators when no email is given.');
+        $this->addExample('app:send-report 2026-09');
+        $this->addExample('app:send-report 2026-09 alice@example.com bob@example.com --format=csv');
+    }
+
+    protected function do(InputInterface $input, OutputInterface $output): int
+    {
+        $month = $input->getArgument('month');
+
+        if (!$output->confirm('Send the report of ' . $month . '?')) {
+            return self::SUCCESS;
+        }
+
+        foreach ($output->progressIterate($this->reports->recipients($input->getArgument('emails'))) as $email) {
+            $this->reports->send($month, $email, $input->getOption('format'), $input->getOption('dry-run'));
+        }
+
+        $output->success('Report sent.');
+
+        return self::SUCCESS;
+    }
+}
+```
+
+- `#[AsCommand(name, description, aliases, hidden, help)]`: the metadata is read without creating the command; the constructor is autowired when the command runs.
+- Commands are discovered in `src/` (any class with `#[AsCommand]`) and in the `Helper/Console/` directory of each framework feature.
+- Arguments: `InputArgument::REQUIRED`, `OPTIONAL`, `IS_ARRAY` (the last one, collects the remaining values). Options: `InputOption::VALUE_NONE` (flag), `VALUE_REQUIRED`, `VALUE_OPTIONAL`, `VALUE_IS_ARRAY` (`--tag=a --tag=b`), with an optional one-letter shortcut.
+- Accepted syntaxes: `--name=value`, `--name value`, `-n value`, `-nvalue`, grouped flags `-abc`, `--` ends the options.
+- Missing required arguments, unknown options and missing values are reported before `do()` runs; a command can report its own invalid input by throwing `InvalidInputException` (exit code 2, usage displayed).
+- The global options cannot be redefined; read `--force` with `$input->getOption('force')`.
+
+### Output
+
+| Method | Description |
+|---|---|
+| `writeln($message, $verbosity)`, `write()`, `newLine()` | raw output, shown from the given verbosity (`OutputInterface::VERBOSITY_VERBOSE`...) |
+| `title()`, `section()`, `text()`, `comment()`, `listing()` | layout |
+| `table($headers, $rows)`, `definitionList($definitions)` | tables and key / value lists |
+| `success()`, `error()`, `warning()`, `caution()`, `info()`, `note()` | message blocks |
+| `ask($question, $default, $validator)` | asks a question; the validator throws an exception to ask again, or returns the value |
+| `confirm($question, $default)` | yes / no question |
+| `choice($question, $choices, $default)` | returns the value (list) or the key (associative array) |
+| `secret($question, $validator)` | hidden answer |
+| `progressStart($max)`, `progressAdvance()`, `progressFinish()`, `progressIterate($iterable)` | progress bar |
+| `isQuiet()`, `isVerbose()`, `isVeryVerbose()`, `isDebug()`, `isInteractive()`, `isDecorated()` | state |
+
+Without interaction (`-n`, `-q` or a closed input), the questions return their default answer. Messages accept the tags `<info>`, `<success>`, `<comment>`, `<warning>`, `<error>`, `<question>`, `<title>`, `<muted>`, `<bold>` and `<underline>`; `Formatter::escape()` escapes a text that must be displayed as is.
+
+### Migrating from v1.14
+
+The old API is removed:
+
+| Before | After |
+|---|---|
+| `extends AbstractCommand` | `extends AbstractConsole` + `#[AsCommand(name: ..., description: ...)]` |
+| `protected string $name`, `$description` | `#[AsCommand]` |
+| `execute(Input $input, Output $output)` | `do(InputInterface $input, OutputInterface $output)` |
+| `$input->getArgument(0)` | `$input->addArgument('name', ...)` in `configure()`, then `$input->getArgument('name')` |
+| `$input->getOption('x', $default)` | `$input->addOption('x', null, InputOption::VALUE_REQUIRED, '', $default)`, then `$input->getOption('x')` |
+| commands only in `Helper/Console/` | any class of `src/` declared with `#[AsCommand]` |
+
+`bin/neo` now passes the environment to the kernel: replace `new Kernel()` with `new Kernel(Input::environment($argv))` (`use NeoPHP\Process\Console\IO\Input;`), or run `php bin/neo install --force` on a copy of your project to get the new file.
 
 ## Routes
 
@@ -2509,7 +2634,7 @@ src/
 │   ├── Security       firewalls, authenticators, user providers, password hashers, voters, #[IsGranted]
 │   └── Yaml           YAML parser
 └── process/
-    ├── Console        neo command line and commands discovery
+    ├── Console        neo command line, #[AsCommand], input definitions, styled output, commands discovery
     └── Installer      project skeleton generation
 ```
 
@@ -2549,3 +2674,4 @@ Feature/Helper/Listener/FeatureListener.php     (optional)
 - Forms and CSRF: form classes extending `AbstractForm` mapped to an entity or an array, field types (text, number, checkbox, choice, enum, entity, date, file, collection, repeated, submit...), conversion and data mapping, validation with the field and entity constraints, `default` and `bootstrap5` themes with `form_*` view helpers, `make:form` (fields generated from an entity); CSRF component with tokens in the session, automatic token in forms, `csrf_token()` / `csrf_field()` helpers, `isCsrfTokenValid()` in controllers and `#[Csrf]` attribute; `File` and `Image` constraints (v1.12.0).
 - Security package: firewalls with login form, HTTP Basic, access tokens, custom authenticators and remember-me cookie, entity / memory / chain / custom user providers, password hashers with automatic rehash, login throttling, user checkers, logout with optional CSRF token, roles with hierarchy, voters (`#[AsVoter]`), `#[IsGranted]`, `access_control`, access decision strategies, `getUser()` / `isGranted()` / `denyAccessUnlessGranted()` / `loginUser()` / `logoutUser()` in controllers, `app_user()` / `is_granted()` / `logout_path()` view helpers, login events, `make:user`, `make:auth`, `make:voter` and `security:hash-password` commands, `config/packages/security.yaml` (v1.13.0).
 - Debug package: `dump()` and `dd()` global functions, collapsible HTML dumps inserted in the response, colored console dumps, `dump()` view helper, dumps disabled when `APP_DEBUG` is false, exception context and stack trace arguments dumped on the error page, `debug:container` command, `config/packages/debug.yaml`; the container exposes `getDefinitions()` and `getAliases()` (v1.14.0).
+- Console: commands declared with `#[AsCommand]` and extending `AbstractConsole` (`configure()` / `do()`), arguments and options definitions with validation, global options (`--help`, `-q`, `-v`/`-vv`/`-vvv`, `--force`, `-n`, `--env`, `--ansi`/`--no-ansi`), the same help layout for every command with examples, styled output (titles, tables, message blocks), questions (`ask`, `confirm`, `choice`, `secret`), progress bar, commands grouped by namespace, abbreviations and "Did you mean" suggestions, command aliases, `make:command`, commands discovered anywhere in `src/`, `--env` read by `bin/neo`; `AbstractCommand` is removed and every command is rewritten (v1.15.0).
