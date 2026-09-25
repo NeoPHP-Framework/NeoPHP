@@ -39,6 +39,7 @@ use NeoPHP\Component\Routing\Contract\RoutingInterface;
 use NeoPHP\Component\Routing\Provider\RoutingProvider;
 use NeoPHP\Component\Service\Provider\ServiceProvider;
 use NeoPHP\Component\Session\Provider\SessionProvider;
+use NeoPHP\Component\Validator\Provider\ValidatorProvider;
 use NeoPHP\Component\View\Provider\ViewProvider;
 use NeoPHP\Package\Dotenv\DotenvManager;
 use NeoPHP\Package\Dotenv\Provider\DotenvProvider;
@@ -347,6 +348,7 @@ abstract class AbstractKernel implements KernelInterface
             CookieProvider::class,
             SessionProvider::class,
             FlashProvider::class,
+            ValidatorProvider::class,
             AssetProvider::class,
             ViewProvider::class,
             ControllerProvider::class,

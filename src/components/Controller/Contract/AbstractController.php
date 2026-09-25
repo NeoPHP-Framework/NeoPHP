@@ -11,6 +11,7 @@ use NeoPHP\Component\Flash\Helper\Controller\FlashController;
 use NeoPHP\Component\Http\Helper\Controller\HttpController;
 use NeoPHP\Component\Routing\Helper\Controller\RoutingController;
 use NeoPHP\Component\Session\Helper\Controller\SessionController;
+use NeoPHP\Component\Validator\Helper\Controller\ValidatorController;
 use NeoPHP\Component\View\Helper\Controller\ViewController;
 
 abstract class AbstractController implements ControllerInterface
@@ -22,5 +23,6 @@ abstract class AbstractController implements ControllerInterface
     use HttpController;
     use RoutingController;
     use SessionController;
+    use ValidatorController;
     use ViewController;
 }
