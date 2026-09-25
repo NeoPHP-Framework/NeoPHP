@@ -9,7 +9,9 @@
         "yaml",
         "routing",
         "http",
-        "twig"
+        "twig",
+        "database",
+        "orm"
     ],
     "require": {
         "php": ">=8.2"
@@ -18,8 +20,12 @@
         "twig/twig": "<3.0"
     },
     "suggest": {
-        "twig/twig": "Required to render .twig templates (^3.0)",
-        "ext-zip": "Required to archive log files as .zip"
+        "ext-pdo": "Required to use the Database component",
+        "ext-pdo_mysql": "Required to connect to MySQL / MariaDB databases",
+        "ext-pdo_pgsql": "Required to connect to PostgreSQL databases",
+        "ext-pdo_sqlite": "Required to connect to SQLite databases",
+        "ext-zip": "Required to archive log files as .zip",
+        "twig/twig": "Required to render .twig templates (^3.0)"
     },
     "autoload": {
         "psr-4": {

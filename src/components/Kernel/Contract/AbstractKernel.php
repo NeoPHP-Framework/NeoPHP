@@ -15,6 +15,7 @@ use NeoPHP\Component\Container\Provider\ContainerProvider;
 use NeoPHP\Component\Controller\Contract\ControllerResolverInterface;
 use NeoPHP\Component\Controller\Provider\ControllerProvider;
 use NeoPHP\Component\Cookie\Provider\CookieProvider;
+use NeoPHP\Component\Database\Provider\DatabaseProvider;
 use NeoPHP\Component\Event\Contract\EventDispatcherInterface;
 use NeoPHP\Component\Event\Provider\EventProvider;
 use NeoPHP\Component\Exception\ExceptionManager;
@@ -43,6 +44,7 @@ use NeoPHP\Component\Validator\Provider\ValidatorProvider;
 use NeoPHP\Component\View\Provider\ViewProvider;
 use NeoPHP\Package\Dotenv\DotenvManager;
 use NeoPHP\Package\Dotenv\Provider\DotenvProvider;
+use NeoPHP\Package\Orm\Provider\OrmProvider;
 use NeoPHP\Package\Yaml\Provider\YamlProvider;
 use NeoPHP\Process\Console\Provider\ConsoleProvider;
 use NeoPHP\Process\Installer\Provider\InstallerProvider;
@@ -349,6 +351,8 @@ abstract class AbstractKernel implements KernelInterface
             SessionProvider::class,
             FlashProvider::class,
             ValidatorProvider::class,
+            DatabaseProvider::class,
+            OrmProvider::class,
             AssetProvider::class,
             ViewProvider::class,
             ControllerProvider::class,

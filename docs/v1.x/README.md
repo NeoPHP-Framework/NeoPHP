@@ -13,9 +13,11 @@ NeoPHP v1.x is the base of the framework. It has no dependency other than PHP 8.
 - sessions, cookies (optionally signed) and flash messages, configured in `config/framework/app.yaml`
 - middlewares (PSR-15 style), global or attached to routes and controllers
 - a dependency injection container with autowiring, `#[Autowire]`, `#[Inject]` and `config/services.yaml`
-- a configuration loaded from `.env` files and `config/**/*.yaml`, with placeholders (`%kernel.root_path%`, `%env(APP_NAME)%`...)
 - events and listeners (PSR-14 style), with the kernel events
 - a validator with constraints usable as attributes (`#[Assert\NotBlank]`) or objects (`new NotBlank()`)
+- a database layer on top of PDO (MySQL / MariaDB, PostgreSQL, SQLite), configured in `config/framework/database.yaml`
+- an ORM (data mapper): entities mapped with attributes, repositories, unit of work, lazy relations, query builders, migrations generated from the entities
+- a configuration loaded from `.env` files and `config/**/*.yaml`, with placeholders (`%kernel.root_path%`, `%env(APP_NAME)%`...)
 - a console (`php bin/neo`) that generates the project files
 
 ## Installation (development)
@@ -102,6 +104,15 @@ var/sessions/
 | `php bin/neo event:list [filter]` | lists the events and their listeners in the order they are called |
 | `php bin/neo cache:clear` | clears `var/cache/` (routes, Twig templates...) |
 | `php bin/neo asset:reload [--minify]` | compiles `assets/` into `public/builds/` and rebuilds the manifest |
+| `php bin/neo database:create [--connection=name] [--if-not-exists]` | creates the database of a connection |
+| `php bin/neo database:drop --force [--connection=name] [--if-exists]` | drops the database of a connection |
+| `php bin/neo database:query "SQL" [--connection=name]` | executes a SQL query and displays the result |
+| `php bin/neo make:entity Post [field:type ...] [--force]` | generates an entity and its repository |
+| `php bin/neo make:repository Post [--force]` | generates the repository of an entity |
+| `php bin/neo make:migration [--empty] [--description="..."]` | generates a migration from the differences between the entities and the database |
+| `php bin/neo migration:migrate [--dry-run]` | executes the pending migrations |
+| `php bin/neo migration:rollback [--steps=1] [--dry-run]` | rolls back the last executed migrations |
+| `php bin/neo migration:status` | lists the migrations and their status |
 
 Each feature can ship its own commands in `Feature/Helper/Console/`: they are discovered automatically, in the framework and in the application (`src/**/Helper/Console/`). A command extends `NeoPHP\Process\Console\Contract\AbstractCommand`.
 
@@ -918,9 +929,7 @@ They can also be declared in `config/framework/event.yaml`:
 listeners:
   App\Event\UserRegisteredEvent:
     - App\Listener\SendWelcomeMail
-    -   listener: App\Listener\Audit
-        method: onRegistered
-        priority: 10
+    - { listener: App\Listener\Audit, method: onRegistered, priority: 10 }
 
 subscribers:
   - App\Subscriber\UserSubscriber
@@ -1124,6 +1133,532 @@ class UniqueUsernameValidator extends AbstractConstraintValidator
 
 `ExecutionContext` gives `addViolation($message, $parameters, $path)`, `getObject()` (object being validated), `getRoot()`, `getPropertyPath()`, `getGroups()` and `validate($value, $constraints, $path)` to validate a nested value.
 
+## Database
+
+The Database component gives a connection to a database and runs SQL queries with PDO. It is not an ORM: entities, repositories, migrations and the query builder belong to the ORM (v1.12.0).
+
+It requires the `pdo` extension and the driver of the database:
+
+| Driver | Extension | URL schemes |
+|---|---|---|
+| MySQL / MariaDB | `pdo_mysql` | `mysql://`, `mariadb://` |
+| PostgreSQL | `pdo_pgsql` | `postgresql://`, `postgres://`, `pgsql://` |
+| SQLite | `pdo_sqlite` | `sqlite://` |
+
+### Configuration
+
+`config/framework/database.yaml`:
+
+```yaml
+default: default
+
+connections:
+  default:
+    url: '%env(DATABASE_URL)%'
+```
+
+`.env`:
+
+```dotenv
+# DATABASE_URL="mysql://user:password@127.0.0.1:3306/app?charset=utf8mb4"
+# DATABASE_URL="postgresql://user:password@127.0.0.1:5432/app?charset=utf8"
+DATABASE_URL="sqlite:///%kernel.root_path%/var/data.db"
+```
+
+A connection is configured with a `url`, with separate parameters, or both: the parameters override the parts of the URL.
+
+```yaml
+default: default
+
+connections:
+  default:
+    url: '%env(DATABASE_URL)%'
+  analytics:
+    driver: pgsql
+    host: '%env(ANALYTICS_HOST)%'
+    port: 5432
+    dbname: analytics
+    user: '%env(ANALYTICS_USER)%'
+    password: '%env(ANALYTICS_PASSWORD)%'
+    charset: utf8
+  cache:
+    driver: sqlite
+    path: var/cache.db
+    options:
+      ATTR_TIMEOUT: 5
+```
+
+| Parameter | Description |
+|---|---|
+| `url` | `driver://user:password@host:port/dbname?charset=...`; special characters of the user and the password are URL-encoded (`@` is `%40`) |
+| `driver` | `mysql` (or `mariadb`), `pgsql` (or `postgresql`), `sqlite` |
+| `host`, `port`, `dbname`, `user`, `password` | server connection (MySQL and PostgreSQL) |
+| `unix_socket` | socket used instead of `host` and `port` |
+| `charset` | `utf8mb4` by default for MySQL, `utf8` for PostgreSQL |
+| `collation` | MySQL collation used by `database:create` |
+| `sslmode` | PostgreSQL SSL mode |
+| `path` | SQLite file, relative to the project root or absolute; `sqlite:///:memory:` for an in-memory database |
+| `foreign_keys` | SQLite: set to `false` to disable `PRAGMA foreign_keys = ON` |
+| `options` | PDO attributes, by name (`ATTR_TIMEOUT`) or number |
+
+With a URL, `sqlite:///var/data.db` is relative to the project root and `sqlite:///%kernel.root_path%/var/data.db` is absolute.
+
+The connections are opened on the first query. PDO throws exceptions and fetches associative arrays by default.
+
+### Usage
+
+In a controller, `getConnection()` returns the default connection, `getConnection('analytics')` another one:
+
+```php
+#[Route('/posts/{id}', name: 'post_show')]
+public function show(int $id): Response
+{
+    $post = $this->getConnection()->fetchAssociative('SELECT * FROM post WHERE id = :id', ['id' => $id]);
+
+    if ($post === null) {
+        throw $this->createNotFoundException('Post not found.');
+    }
+
+    return $this->render('post/show.php', ['post' => $post]);
+}
+```
+
+In a service, inject `ConnectionInterface` (default connection), a named connection with `#[Autowire(service: 'database.connection.<name>')]`, or `DatabaseInterface` to use all the connections:
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Repository;
+
+use NeoPHP\Component\Container\Attribute\Autowire;
+use NeoPHP\Component\Database\Contract\ConnectionInterface;
+
+class PostRepository
+{
+    public function __construct(
+        protected ConnectionInterface $connection,
+        #[Autowire(service: 'database.connection.analytics')] protected ConnectionInterface $analytics,
+    ) {
+    }
+
+    public function findPublished(): array
+    {
+        return $this->connection->fetchAllAssociative('SELECT * FROM post WHERE published = ? ORDER BY id DESC', [true]);
+    }
+}
+```
+
+| Method | Returns |
+|---|---|
+| `executeQuery($sql, $params)` | a `Result` |
+| `executeStatement($sql, $params)` | the number of affected rows |
+| `fetchAssociative()` / `fetchNumeric()` / `fetchObject()` | the first row, or `null` |
+| `fetchOne()` | the first column of the first row, or `null` |
+| `fetchAllAssociative()` / `fetchAllNumeric()` / `fetchAllObjects()` | all the rows |
+| `fetchFirstColumn()` | the first column of every row |
+| `fetchAllKeyValue()` | `[first column => second column]` |
+| `fetchAllAssociativeIndexed()` | the rows indexed by their first column |
+| `iterateAssociative()` | a generator, row by row |
+| `insert($table, $data)` | the number of inserted rows |
+| `update($table, $data, $criteria)` | the number of updated rows |
+| `delete($table, $criteria)` | the number of deleted rows |
+| `lastInsertId(?$sequence)` | the last inserted id (PostgreSQL: the sequence name, `post_id_seq`) |
+| `quote($value)` / `quoteIdentifier($name)` | a quoted value / identifier |
+| `getPdo()` | the PDO instance |
+
+```php
+$connection->insert('post', ['title' => 'Hello', 'status' => Status::Published, 'created_at' => new DateTimeImmutable()]);
+$id = $connection->lastInsertId();
+
+$connection->update('post', ['title' => 'Hello world'], ['id' => $id]);
+$connection->delete('post', ['status' => [Status::Draft, Status::Archived]]);
+```
+
+`update()` and `delete()` require criteria: a `null` criterion becomes `IS NULL`, an array becomes `IN (...)`.
+
+### Parameters
+
+Parameters are positional (`?`) or named (`:name`), not both in the same query. The values are bound with their type: `int`, `bool`, `null`, `float`, backed enums (their value), `DateTimeInterface` (`Y-m-d H:i:s`), `Stringable`.
+
+An array is expanded, for `IN` clauses:
+
+```php
+$connection->fetchAllAssociative('SELECT * FROM post WHERE id IN (:ids)', ['ids' => [1, 2, 3]]);
+$connection->fetchAllAssociative('SELECT * FROM post WHERE id IN (?) AND views > ?', [[1, 2, 3], 10]);
+```
+
+An empty array becomes `NULL`, so `IN (NULL)` matches nothing.
+
+### Transactions
+
+```php
+$connection->transactional(function (ConnectionInterface $connection): void {
+    $connection->insert('order', ['reference' => 'A-001']);
+    $connection->insert('order_line', ['order_id' => $connection->lastInsertId(), 'quantity' => 2]);
+});
+```
+
+`transactional()` commits and returns the value of the callback, or rolls back and rethrows the exception. `beginTransaction()`, `commit()` and `rollBack()` can be called directly. Nested transactions use savepoints.
+
+### Errors
+
+| Exception | Thrown when |
+|---|---|
+| `ConnectionException` | the connection fails, or the PDO extension of the driver is missing |
+| `QueryException` | a query fails; `getSql()` and `getParams()` return the query and its parameters |
+| `DatabaseException` | the configuration is invalid, a connection does not exist... (parent of the two others) |
+
+## ORM
+
+The ORM (`src/packages/Orm`) is a data mapper built on the Database component: entities are plain PHP classes mapped with attributes, the ORM (`OrmInterface`, the entity manager) tracks them and writes the changes on `flush()`. It works with MySQL / MariaDB, PostgreSQL and SQLite.
+
+### Configuration
+
+`config/packages/orm.yaml` (every key is optional, these are the defaults):
+
+```yaml
+connection: ~
+
+entity:
+  path: src/Entity
+  namespace: App\Entity
+
+repository:
+  path: src/Repository
+  namespace: App\Repository
+
+migration:
+  path: migrations
+  namespace: Migrations
+  table: neo_migrations
+
+proxy:
+  path: '%kernel.cache_path%/orm/proxies'
+
+ignore_tables: []
+```
+
+| Key | Description |
+|---|---|
+| `connection` | database connection used by the ORM (`database.yaml`); the default connection when empty |
+| `entity` | directory and namespace of the entities, used by `make:entity` and `make:migration` |
+| `repository` | directory and namespace of the repositories, used by `make:repository` and to find the repository of an entity |
+| `migration` | directory, namespace and table of the migrations |
+| `proxy` | directory of the generated proxy classes (cleared by `cache:clear`) |
+| `ignore_tables` | tables ignored by `make:migration` (never created nor dropped) |
+
+### Entities
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Entity;
+
+use App\Enum\PostStatus;
+use App\Repository\PostRepository;
+use DateTimeImmutable;
+use NeoPHP\Package\Orm\Collection\ArrayCollection;
+use NeoPHP\Package\Orm\Contract\CollectionInterface;
+use NeoPHP\Package\Orm\Mapping as ORM;
+
+#[ORM\Entity(repository: PostRepository::class)]
+#[ORM\Index(columns: ['status', 'publishedAt'])]
+class Post
+{
+    #[ORM\Id]
+    #[ORM\GeneratedValue]
+    #[ORM\Column]
+    private ?int $id = null;
+
+    #[ORM\Column(length: 120)]
+    private ?string $title = null;
+
+    #[ORM\Column(type: 'text', nullable: true)]
+    private ?string $content = null;
+
+    #[ORM\Column]
+    private PostStatus $status = PostStatus::Draft;
+
+    #[ORM\Column(nullable: true)]
+    private ?DateTimeImmutable $publishedAt = null;
+
+    #[ORM\ManyToOne(Category::class, inversedBy: 'posts', nullable: false)]
+    private ?Category $category = null;
+
+    #[ORM\ManyToMany(Tag::class, inversedBy: 'posts')]
+    private CollectionInterface $tags;
+
+    #[ORM\OneToMany(Comment::class, mappedBy: 'post', cascade: ['persist', 'remove'], orphanRemoval: true, orderBy: ['createdAt' => 'DESC'])]
+    private CollectionInterface $comments;
+
+    public function __construct()
+    {
+        $this->tags = new ArrayCollection();
+        $this->comments = new ArrayCollection();
+    }
+}
+```
+
+The table is the class name in snake_case (`BlogPost` → `blog_post`) and each column is the property name in snake_case (`publishedAt` → `published_at`). `#[ORM\Entity(table: 'users')]` and `#[ORM\Column(name: '...')]` change them.
+
+| Attribute | Options |
+|---|---|
+| `#[ORM\Entity]` | `table`, `repository` |
+| `#[ORM\Id]` | the identifier (one per entity) |
+| `#[ORM\GeneratedValue]` | `strategy: 'auto'` (auto increment, default), `'uuid'` (UUID v7 generated on `persist()`), `'none'` (set by the application) |
+| `#[ORM\Column]` | `name`, `type`, `length` (255), `nullable` (false), `unique`, `default`, `precision` / `scale` (decimal), `enumType` |
+| `#[ORM\Index]` | `columns` (properties or columns), `name`, `unique`; repeatable, on the class |
+
+The type is deduced from the property type when it is not given:
+
+| Type | PHP type | Deduced from |
+|---|---|---|
+| `string` | `string` | `string` |
+| `text` | `string` | |
+| `integer`, `smallint`, `bigint` | `int` | `int` |
+| `float` | `float` | `float` |
+| `decimal` | `string` (formatted with the scale) | |
+| `boolean` | `bool` | `bool` |
+| `datetime`, `date`, `time` | `DateTime` | `DateTime`, `DateTimeInterface` |
+| `datetime_immutable`, `date_immutable`, `time_immutable` | `DateTimeImmutable` | `DateTimeImmutable` |
+| `json` | `array` | `array` |
+| `guid` | `string` | |
+| backed enum | the enum | a `BackedEnum` (stored as its value) |
+
+### Relations
+
+| Attribute | Owning side | Options |
+|---|---|---|
+| `#[ORM\ManyToOne(Category::class)]` | always (column `category_id`) | `inversedBy`, `joinColumn`, `nullable` (true), `onDelete` (`CASCADE`, `SET NULL`), `cascade`, `fetch` (`lazy`, `eager`) |
+| `#[ORM\OneToMany(Comment::class, mappedBy: 'post')]` | never: mapped by the `ManyToOne` of the target | `cascade`, `orphanRemoval`, `orderBy` |
+| `#[ORM\OneToOne(Profile::class)]` | without `mappedBy` (unique column `profile_id`) | `mappedBy`, `inversedBy`, `joinColumn`, `nullable`, `onDelete`, `cascade`, `orphanRemoval` |
+| `#[ORM\ManyToMany(Tag::class)]` | without `mappedBy` (join table `post_tag`) | `mappedBy`, `inversedBy`, `joinTable`, `joinColumn`, `inverseJoinColumn`, `cascade`, `orderBy` |
+
+- Only the owning side is written to the database: update it (the `add...()` / `set...()` methods generated by `make:entity` do it).
+- `cascade: ['persist']` persists the new related entities, `cascade: ['remove']` removes them with the entity, `'all'` does both. Without `persist` cascade, a new entity found through a relation throws an exception on `flush()`.
+- `orphanRemoval: true` removes an entity removed from the collection (`OneToMany`) or replaced (`OneToOne`).
+- Collections (`OneToMany`, `ManyToMany`) are typed `CollectionInterface`: an `ArrayCollection` for a new entity, a lazy `PersistentCollection` loaded on first use for an entity read from the database.
+- `ManyToOne` and `OneToOne` relations are loaded lazily with a proxy (a generated subclass in `var/cache/orm/proxies`) that loads the entity on its first method call; `getId()` does not load it. A `final` class, or a class with `__get()`, is loaded immediately instead.
+
+### Persisting
+
+```php
+$orm = $this->getOrm();
+
+$post = (new Post())->setTitle('Hello')->setCategory($category);
+$post->addTag($tag);
+
+$orm->persist($post);
+$orm->flush();
+
+$post->setTitle('Hello world');
+$orm->flush();
+
+$orm->remove($post);
+$orm->flush();
+```
+
+`flush()` computes the changes of every managed entity and writes them in one transaction: inserts (in the order of the relations), updates of the changed columns only, join tables, deletes.
+
+| Method | Description |
+|---|---|
+| `persist($entity)` | manages a new entity (inserted on `flush()`) |
+| `remove($entity)` | schedules the deletion |
+| `flush()` | writes the changes |
+| `find(Post::class, $id)` | the entity, or `null` |
+| `getReference(Post::class, $id)` | a proxy, without query |
+| `getRepository(Post::class)` | the repository of the entity |
+| `createQueryBuilder()` / `createSqlQueryBuilder()` | the query builders |
+| `refresh($entity)`, `detach($entity)`, `clear()`, `contains($entity)` | unit of work |
+| `transactional(fn (OrmInterface $orm) => ...)` | runs the callback and flushes in a transaction |
+
+The same entity is returned for the same row (identity map). In a controller, `getOrm()` and `getRepository(Post::class)` are available; elsewhere, inject `NeoPHP\Package\Orm\Contract\OrmInterface`.
+
+### Repositories
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Repository;
+
+use App\Entity\Post;
+use App\Enum\PostStatus;
+use NeoPHP\Package\Orm\Contract\AbstractRepository;
+
+class PostRepository extends AbstractRepository
+{
+    protected string $entityClass = Post::class;
+
+    public function findLatestPublished(int $limit = 10): array
+    {
+        return $this->createQueryBuilder('p')
+            ->leftJoin('p.category', 'c')->addSelect('c')
+            ->where('p.status = :status')->setParameter('status', PostStatus::Published)
+            ->orderBy('p.publishedAt', 'DESC')
+            ->setMaxResults($limit)
+            ->getResult();
+    }
+}
+```
+
+Repositories are services: inject them in controllers and services (`public function index(PostRepository $posts)`). An entity without repository gets a generic `EntityRepository`.
+
+| Method | Returns |
+|---|---|
+| `find($id)` | an entity or `null` |
+| `findAll($orderBy)` | all the entities |
+| `findBy(['category' => $category, 'status' => [PostStatus::Draft, PostStatus::Published]], ['title' => 'ASC'], $limit, $offset)` | the matching entities; an array becomes `IN`, `null` becomes `IS NULL` |
+| `findOneBy($criteria, $orderBy)` | the first matching entity or `null` |
+| `count($criteria)` | the number of matching entities |
+| `createQueryBuilder('p')` | a query builder selecting the entity |
+| `save($entity, $flush = false)` / `delete($entity, $flush = false)` | `persist()` / `remove()`, then `flush()` if asked |
+
+### Query builder
+
+The entity query builder uses properties (`p.publishedAt`) and relations (`p.category`); it translates them to columns and joins:
+
+```php
+$posts = $orm->createQueryBuilder()
+    ->select('p', 'c')
+    ->from(Post::class, 'p')
+    ->leftJoin('p.category', 'c')
+    ->join('p.tags', 't')
+    ->where('t.name IN (:tags)')
+    ->andWhere('p.category = :category')
+    ->setParameter('tags', ['php', 'orm'])
+    ->setParameter('category', $category)
+    ->orderBy('p.title')
+    ->setMaxResults(20)
+    ->getResult();
+```
+
+| Method | Description |
+|---|---|
+| `select()` / `addSelect()` | an alias selects entities (a joined alias loads the relation in the same query), anything else is a scalar expression (`COUNT(p.id) AS total`) |
+| `from(Post::class, 'p')` | the root entity |
+| `join()` / `innerJoin()` / `leftJoin()` | a relation (`'p.category'`), or an entity with a condition (`Category::class, 'c', 'c.id = p.category'`); an extra condition is added with `AND` |
+| `where()` / `andWhere()` / `orWhere()`, `groupBy()`, `having()`, `orderBy()` / `addOrderBy()` | clauses; `p.category` is the foreign key column |
+| `setParameter()` / `setParameters()` | named parameters; an entity becomes its id, an array is expanded for `IN` |
+| `setMaxResults()` / `setFirstResult()` | limit and offset |
+| `getResult()` | the entities (or rows `[entity, scalar...]` when scalars are selected too) |
+| `getOneOrNullResult()` / `getSingleResult()` | one entity (`NonUniqueResultException`, `NoResultException`) |
+| `getSingleScalarResult()`, `getScalarResult()`, `getArrayResult()` | a value, raw rows, entities as arrays |
+| `getSQL()` | the generated SQL |
+
+`createSqlQueryBuilder()` returns a SQL query builder working on tables and columns, usable without entities:
+
+```php
+$rows = $orm->createSqlQueryBuilder()
+    ->select('c.name', 'COUNT(p.id) AS total')
+    ->from('category', 'c')
+    ->leftJoin('post', 'p', 'p.category_id = c.id')
+    ->groupBy('c.name')
+    ->fetchAllAssociative();
+
+$orm->createSqlQueryBuilder()->update('post')->set('views', 'views + 1')->where('id = :id')->setParameter('id', 1)->executeStatement();
+```
+
+It also builds `insert()` / `values()`, `update()` / `set()` and `delete()` queries, and runs them with `executeQuery()`, `executeStatement()`, `fetchAllAssociative()`, `fetchAssociative()`, `fetchOne()` and `fetchFirstColumn()`.
+
+### Lifecycle callbacks and events
+
+```php
+#[ORM\PrePersist]
+public function onPrePersist(): void
+{
+    $this->createdAt = new DateTimeImmutable();
+}
+
+#[ORM\PreUpdate]
+public function onPreUpdate(PreUpdateEvent $event): void
+{
+    if ($event->hasChangedField('title')) {
+        $this->updatedAt = new DateTimeImmutable();
+    }
+}
+```
+
+| Callback attribute | Event (`NeoPHP\Package\Orm\Event\`) | When |
+|---|---|---|
+| `#[ORM\PrePersist]` | `PrePersistEvent` | on `persist()` |
+| `#[ORM\PostPersist]` | `PostPersistEvent` | after the insert |
+| `#[ORM\PreUpdate]` | `PreUpdateEvent` (`getChangeSet()`, `hasChangedField()`, `getOldValue()`, `getNewValue()`) | before the update; the changes made in the callback are saved |
+| `#[ORM\PostUpdate]` | `PostUpdateEvent` | after the update |
+| `#[ORM\PreRemove]` | `PreRemoveEvent` | on `remove()` |
+| `#[ORM\PostRemove]` | `PostRemoveEvent` | after the delete |
+| `#[ORM\PostLoad]` | `PostLoadEvent` | after the entity is loaded |
+| | `PreFlushEvent`, `PostFlushEvent` | around `flush()` |
+
+The events are dispatched with the event dispatcher: a listener receives them like any other event (`#[AsListener]` on a method taking `PrePersistEvent`, or `LifecycleEvent` for all of them).
+
+### Generating code
+
+```bash
+php bin/neo make:entity Category name:string:100 posts:OneToMany:Post:category
+php bin/neo make:entity Post title:string:120 content:text? status:enum:App\\Enum\\PostStatus publishedAt:datetime_immutable? category:ManyToOne:Category tags:ManyToMany:Tag
+php bin/neo make:repository Post
+```
+
+`make:entity` generates the entity (properties, getters, setters, `add...()` / `remove...()` for collections) and its repository. A field is `name:type`; a trailing `?` makes it nullable. Types: `string[:length]`, `text`, `integer`, `smallint`, `bigint`, `float`, `decimal[:precision[:scale]]`, `boolean`, `datetime`, `datetime_immutable`, `date`, `date_immutable`, `time`, `json`, `guid`, `enum:Class`, and the relations `ManyToOne:Target`, `OneToOne:Target`, `OneToMany:Target[:mappedBy]`, `ManyToMany:Target`. The inverse side of a relation is not generated in the target entity.
+
+### Migrations
+
+```bash
+php bin/neo make:migration --description="Blog schema"
+php bin/neo migration:migrate
+php bin/neo migration:status
+php bin/neo migration:rollback
+```
+
+`make:migration` compares the entities to the database (tables, columns, indexes, foreign keys) and writes `migrations/Migration_{hash}.php` with the SQL of the database in use. The hash starts with the creation time, so migrations run in the order they were generated.
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace Migrations;
+
+use NeoPHP\Package\Orm\Contract\AbstractMigration;
+
+class Migration_01a0d70c0b0beeb3 extends AbstractMigration
+{
+    public function getDescription(): string
+    {
+        return 'Blog schema';
+    }
+
+    public function up(): void
+    {
+        $this->abortIf($this->getPlatformName() !== 'mysql', 'This migration was generated for mysql.');
+
+        $this->addSql('CREATE TABLE `category` (...)');
+    }
+
+    public function down(): void
+    {
+        $this->abortIf($this->getPlatformName() !== 'mysql', 'This migration was generated for mysql.');
+
+        $this->addSql('DROP TABLE `category`');
+    }
+}
+```
+
+- `make:migration` refuses to run while migrations are pending, and does nothing when the database is in sync. `--empty` creates an empty migration to write by hand.
+- The executed migrations are stored in the `neo_migrations` table. Each migration runs in a transaction on PostgreSQL and SQLite (MySQL commits DDL statements immediately).
+- On SQLite, a changed table is rebuilt (new table, copy of the data, rename), with the foreign keys disabled during the migration.
+- The generated SQL can be edited before `migration:migrate`; `$this->connection` is available for data migrations.
+
+### Limits
+
+Composite identifiers, inheritance mapping, readonly properties and changes of the primary key are not supported. The ORM should be cleared (`clear()`) after a failed `flush()`.
+
 ## Session, cookies and flash messages
 
 They are configured in `config/framework/app.yaml`:
@@ -1288,6 +1823,9 @@ DATABASE_URL="mysql://${DB_USER}@localhost/app"
 | `APP_ENV` | `dev` | environment name |
 | `APP_DEBUG` | `true` unless `APP_ENV=prod` | shows the detailed error page |
 | `APP_SECRET` | none | key used to sign cookies |
+| `DATABASE_URL` | `sqlite:///%kernel.root_path%/var/data.db` | URL of the default database connection |
+
+`php bin/neo install` creates `.env`; when `.env` already exists, it adds the variables that are missing (with their comments) and keeps the others.
 
 ### YAML configuration
 
@@ -1424,19 +1962,22 @@ src/
 │   ├── Container      dependency injection container, autowiring, #[Autowire], #[Inject], providers
 │   ├── Controller     controller resolution and AbstractController (made of traits)
 │   ├── Cookie         cookies read from the request, queued, signed
+│   ├── Database       PDO connections (MySQL, PostgreSQL, SQLite), queries, transactions
 │   ├── Event          event dispatcher, listeners, subscribers
 │   ├── Exception      FrameworkException and error pages
 │   ├── Flash          flash messages stored in the session
 │   ├── Http           Request, Response, JsonResponse, RedirectResponse
-│   ├── Kernel         boot, request lifecycle, kernel events, class discovery, cache, cache:clear│   ├── Logger         PSR-3 logger, channels, rotation, archives
+│   ├── Kernel         boot, request lifecycle, kernel events, class discovery, cache, cache:clear
+│   ├── Logger         PSR-3 logger, channels, rotation, archives
 │   ├── Middleware     middlewares, pipeline, aliases and groups
 │   ├── Routing        YAML and attribute routes, cache, matching, URL generation
 │   ├── Service        config/services.yaml, resources, aliases, interfaces
-│   ├── Validator      constraints (attributes or objects), violations, groups
 │   ├── Session        native PHP session, started on demand
+│   ├── Validator      constraints (attributes or objects), violations, groups
 │   └── View           PHP and Twig templates, view helpers discovery
 ├── packages/
 │   ├── Dotenv         .env files loader
+│   ├── Orm            entities, unit of work, repositories, query builders, proxies, migrations
 │   └── Yaml           YAML parser
 └── process/
     ├── Console        neo command line and commands discovery
@@ -1474,3 +2015,5 @@ Feature/Helper/Listener/FeatureListener.php     (optional)
 - Events: PSR-14 style dispatcher, `#[AsListener]`, subscribers, `event.yaml`, stoppable events, kernel events (`RequestEvent`, `ControllerEvent`, `ResponseEvent`, `ExceptionEvent`, `TerminateEvent`) replacing `TerminableInterface`, `dispatch()` in controllers, `event:list` command (v1.9.0).
 - Routing: attribute routes discovered with the kernel `ClassFinder` and routes cache stored with `ResourceCache`; an old routes cache is rebuilt automatically (v1.9.1).
 - Validator: constraints usable as attributes or objects, validation of objects, values and arrays, groups, `Valid`, `All`, `Collection`, `Callback`, custom constraints with autowired validators, `validate()` in controllers, 422 JSON response for `ValidationFailedException` (v1.10.0).
+- Database: PDO connections configured in `database.yaml` with a URL or parameters (MySQL / MariaDB, PostgreSQL, SQLite), several connections, query and fetch methods, `insert()` / `update()` / `delete()`, array parameters expanded, nested transactions, `getConnection()` in controllers, `database:create`, `database:drop` and `database:query` commands; `neo install` adds the missing variables to an existing `.env` (v1.11.0).
+- ORM package: entities mapped with attributes, `ManyToOne` / `OneToMany` / `OneToOne` / `ManyToMany` relations with lazy loading (generated proxies, lazy collections), cascade and orphan removal, unit of work with identity map and change tracking, repositories, entity and SQL query builders, lifecycle callbacks and events, enum / JSON / date / decimal types, `make:entity`, `make:repository`, `make:migration` (diff between the entities and the database), `migration:migrate`, `migration:rollback` and `migration:status` commands, `config/packages/orm.yaml` (v1.12.0).
