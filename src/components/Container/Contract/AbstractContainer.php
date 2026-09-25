@@ -17,6 +17,7 @@ use ReflectionMethod;
 use ReflectionNamedType;
 use ReflectionParameter;
 use ReflectionProperty;
+use stdClass;
 
 abstract class AbstractContainer implements ContainerInterface
 {
@@ -74,6 +75,48 @@ abstract class AbstractContainer implements ContainerInterface
     public function resolved(string $id): bool
     {
         return array_key_exists($this->resolveAlias($id), $this->instances);
+    }
+
+    public function getDefinitions(): array
+    {
+        $definitions = [];
+
+        foreach ($this->bindings as $id => $binding) {
+            $concrete = $binding['concrete'];
+            $definitions[$id] = [
+                'kind' => $binding['shared'] ? 'singleton' : 'factory',
+                'concrete' => match (true) {
+                    $concrete instanceof Closure => 'closure',
+                    is_string($concrete) => $concrete,
+                    default => get_debug_type($concrete),
+                },
+                'class' => array_key_exists($id, $this->instances) ? get_debug_type($this->instances[$id]) : null,
+                'resolved' => array_key_exists($id, $this->instances),
+            ];
+        }
+
+        foreach ($this->instances as $id => $instance) {
+            if (!isset($definitions[$id])) {
+                $definitions[$id] = [
+                    'kind' => is_object($instance) ? 'instance' : 'parameter',
+                    'concrete' => get_debug_type($instance),
+                    'class' => get_debug_type($instance),
+                    'resolved' => true,
+                ];
+            }
+        }
+
+        ksort($definitions);
+
+        return $definitions;
+    }
+
+    public function getAliases(): array
+    {
+        $aliases = $this->aliases;
+        ksort($aliases);
+
+        return $aliases;
     }
 
     public function has(string $id): bool
@@ -376,7 +419,7 @@ abstract class AbstractContainer implements ContainerInterface
         }
 
         if ($autowire->config !== null) {
-            $missing = new \stdClass();
+            $missing = new stdClass();
             $value = $this->bound(self::CONFIG_ID) ? $this->get(self::CONFIG_ID)->get($autowire->config, $missing) : $missing;
 
             if ($value === $missing) {
