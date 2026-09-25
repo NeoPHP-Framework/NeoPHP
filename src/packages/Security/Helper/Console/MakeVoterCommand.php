@@ -7,46 +7,45 @@ namespace NeoPHP\Package\Security\Helper\Console;
 use NeoPHP\Component\Container\Contract\ContainerInterface;
 use NeoPHP\Package\Orm\Provider\OrmProvider;
 use NeoPHP\Package\Security\Maker\VoterMaker;
-use NeoPHP\Process\Console\Contract\AbstractCommand;
-use NeoPHP\Process\Console\IO\Input;
-use NeoPHP\Process\Console\IO\Output;
+use NeoPHP\Process\Console\Attribute\AsCommand;
+use NeoPHP\Process\Console\Contract\AbstractConsole;
+use NeoPHP\Process\Console\Contract\InputInterface;
+use NeoPHP\Process\Console\Contract\OutputInterface;
+use NeoPHP\Process\Console\IO\InputArgument;
 use Throwable;
 
-class MakeVoterCommand extends AbstractCommand
+#[AsCommand(name: 'make:voter', description: 'Generates a voter in src/Security/Voter/')]
+class MakeVoterCommand extends AbstractConsole
 {
-    protected string $name = 'make:voter';
-
-    protected string $description = 'Generates a voter in src/Security/Voter/. Usage: make:voter Post [--force]';
-
     public function __construct(protected ContainerInterface $container)
     {
     }
 
-    public function execute(Input $input, Output $output): int
+    protected function configure(InputInterface $input, OutputInterface $output): void
     {
-        $name = $input->getArgument(0);
+        $input->addArgument('name', InputArgument::REQUIRED, 'The voter name (the "Voter" suffix is added); the subject is the entity of the same name when it exists');
+        $this->addExample('make:voter Post');
+        $this->addExample('make:voter Post --force');
+    }
 
-        if ($name === null || $name === '') {
-            $output->writeln('<error>Missing voter name.</error> Usage: php bin/neo make:voter Post');
-
-            return self::INVALID;
-        }
-
+    protected function do(InputInterface $input, OutputInterface $output): int
+    {
+        $name = (string) $input->getArgument('name');
         $root = (string) $this->container->get('kernel.root_path');
         $maker = new VoterMaker($root . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Security' . DIRECTORY_SEPARATOR . 'Voter', 'App\\Security\\Voter');
 
         try {
-            [$class, $file, $attributes] = $maker->make($name, $this->subject($name), (bool) $input->getOption('force', false));
+            [$class, $file, $attributes] = $maker->make($name, $this->subject($name), (bool) $input->getOption('force'));
         } catch (Throwable $exception) {
-            $output->writeln(sprintf('<error>%s</error>', $exception->getMessage()));
+            $output->error($exception->getMessage());
 
             return self::FAILURE;
         }
 
-        $output->writeln(sprintf('<success>created</success>  %s', $file));
         $short = substr($class, (int) strrpos($class, '\\') + 1);
-        $output->writeln(sprintf('Attributes: <info>%s</info>.', implode(', ', $attributes)));
-        $output->writeln(sprintf('Use them with <info>$this->denyAccessUnlessGranted(%s::EDIT, $subject)</info> in a controller or <info>is_granted(\'%s\', subject)</info> in a template.', $short, $attributes[1]));
+        $output->writeln(sprintf('  <success>created</success>  %s', $file));
+        $output->success(sprintf('Voter %s created with the attributes %s.', $short, implode(', ', $attributes)));
+        $output->text(sprintf('Use them with <info>$this->denyAccessUnlessGranted(%s::EDIT, $subject)</info> in a controller or <info>is_granted(\'%s\', subject)</info> in a template.', $short, $attributes[1]));
 
         return self::SUCCESS;
     }

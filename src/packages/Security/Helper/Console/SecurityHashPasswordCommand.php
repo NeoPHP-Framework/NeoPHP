@@ -5,37 +5,55 @@ declare(strict_types=1);
 namespace NeoPHP\Package\Security\Helper\Console;
 
 use NeoPHP\Package\Security\Hasher\UserPasswordHasher;
-use NeoPHP\Process\Console\Contract\AbstractCommand;
-use NeoPHP\Process\Console\IO\Input;
-use NeoPHP\Process\Console\IO\Output;
+use NeoPHP\Process\Console\Attribute\AsCommand;
+use NeoPHP\Process\Console\Contract\AbstractConsole;
+use NeoPHP\Process\Console\Contract\InputInterface;
+use NeoPHP\Process\Console\Contract\OutputInterface;
+use NeoPHP\Process\Console\Exception\InvalidInputException;
+use NeoPHP\Process\Console\IO\InputArgument;
 use Throwable;
 
-class SecurityHashPasswordCommand extends AbstractCommand
+#[AsCommand(name: 'security:hash-password', description: 'Hashes a password with the configured hasher')]
+class SecurityHashPasswordCommand extends AbstractConsole
 {
-    protected string $name = 'security:hash-password';
-
-    protected string $description = 'Hashes a password with the configured hasher. Usage: security:hash-password <password> [UserClass]';
-
     public function __construct(protected UserPasswordHasher $hasher)
     {
     }
 
-    public function execute(Input $input, Output $output): int
+    protected function configure(InputInterface $input, OutputInterface $output): void
     {
-        $password = $input->getArgument(0);
+        $input->addArgument('password', InputArgument::OPTIONAL, 'The plain password (asked without echo when omitted)');
+        $input->addArgument('user-class', InputArgument::OPTIONAL, 'The user class whose hasher is used', UserPasswordHasher::DEFAULT_KEY);
+        $this->setHelp('Omit the password to type it without echo: it then stays out of the shell history.');
+        $this->addExample('security:hash-password');
+        $this->addExample('security:hash-password secret');
+        $this->addExample('security:hash-password secret "App\\Entity\\User"');
+    }
 
-        if ($password === null || $password === '') {
-            $output->writeln('<error>Missing password.</error> Usage: php bin/neo security:hash-password secret [App\Entity\User]');
+    protected function do(InputInterface $input, OutputInterface $output): int
+    {
+        $password = (string) ($input->getArgument('password') ?? '');
 
-            return self::INVALID;
+        if ($password === '') {
+            if (!$output->isInteractive()) {
+                throw new InvalidInputException('Not enough arguments (missing: "password").');
+            }
+
+            $password = (string) $output->secret('Password to hash', static function (mixed $value): string {
+                if (!is_string($value) || $value === '') {
+                    throw new InvalidInputException('The password cannot be empty.');
+                }
+
+                return $value;
+            });
         }
 
-        $class = $input->getArgument(1) ?? UserPasswordHasher::DEFAULT_KEY;
+        $class = (string) $input->getArgument('user-class');
 
         try {
             $hash = $this->hasher->getPasswordHasher($class)->hash($password);
         } catch (Throwable $exception) {
-            $output->writeln(sprintf('<error>%s</error>', $exception->getMessage()));
+            $output->error($exception->getMessage());
 
             return self::FAILURE;
         }

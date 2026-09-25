@@ -5,28 +5,32 @@ declare(strict_types=1);
 namespace NeoPHP\Process\Console\Command;
 
 use NeoPHP\Component\Container\Contract\ContainerInterface;
-use NeoPHP\Process\Console\Contract\AbstractCommand;
-use NeoPHP\Process\Console\IO\Input;
-use NeoPHP\Process\Console\IO\Output;
+use NeoPHP\Process\Console\Attribute\AsCommand;
+use NeoPHP\Process\Console\Contract\AbstractConsole;
+use NeoPHP\Process\Console\Contract\InputInterface;
+use NeoPHP\Process\Console\Contract\OutputInterface;
 use NeoPHP\Process\Installer\Contract\InstallerInterface;
 
-class InstallCommand extends AbstractCommand
+#[AsCommand(name: 'install', description: 'Generates the project files (public/, src/Kernel.php, config/, templates/...)')]
+class InstallCommand extends AbstractConsole
 {
-    protected string $name = 'install';
-
-    protected string $description = 'Generates the project files (public/, src/Kernel.php, config/, templates/...). Use --force to overwrite';
-
     public function __construct(protected InstallerInterface $installer, protected ContainerInterface $container)
     {
     }
 
-    public function execute(Input $input, Output $output): int
+    protected function configure(InputInterface $input, OutputInterface $output): void
+    {
+        $this->setHelp('Existing files are kept, except with --force. The missing variables of .env are always added.');
+        $this->addExample('install');
+        $this->addExample('install --force');
+    }
+
+    protected function do(InputInterface $input, OutputInterface $output): int
     {
         $rootPath = (string) $this->container->get('kernel.root_path');
-        $report = $this->installer->install($rootPath, (bool) $input->getOption('force', false));
+        $report = $this->installer->install($rootPath, (bool) $input->getOption('force'));
 
-        $output->writeln(sprintf('<title>Installing NeoPHP in</title> %s', $rootPath));
-        $output->writeln();
+        $output->title('Installing NeoPHP in ' . $rootPath);
 
         foreach ($report as $path => $status) {
             $style = match ($status) {
@@ -35,16 +39,14 @@ class InstallCommand extends AbstractCommand
                 default => 'muted',
             };
 
-            $output->writeln(sprintf('  <%1$s>%2$s</%1$s>  %3$s', $style, str_pad($status, 11), $path));
+            $output->writeln(sprintf('  <%1$s>%2$s</%1$s>  %3$s', $style, str_pad($status, 11), $path), $status === InstallerInterface::STATUS_SKIPPED ? OutputInterface::VERBOSITY_VERBOSE : OutputInterface::VERBOSITY_NORMAL);
         }
-
-        $output->writeln();
 
         if (($report['composer.json'] ?? null) === InstallerInterface::STATUS_UPDATED) {
-            $output->writeln('<comment>composer.json was updated: run "composer dump-autoload".</comment>');
+            $output->warning('composer.json was updated: run "composer dump-autoload".');
         }
 
-        $output->writeln('<success>Done.</success> Start the server with: php bin/neo serve');
+        $output->success('Done. Start the server with: php bin/neo serve');
 
         return self::SUCCESS;
     }

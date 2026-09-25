@@ -6,34 +6,47 @@ namespace NeoPHP\Package\Debug\Helper\Console;
 
 use NeoPHP\Component\Container\Contract\ContainerInterface;
 use NeoPHP\Package\Debug\Contract\DebugInterface;
-use NeoPHP\Process\Console\Contract\AbstractCommand;
-use NeoPHP\Process\Console\IO\Input;
-use NeoPHP\Process\Console\IO\Output;
+use NeoPHP\Process\Console\Attribute\AsCommand;
+use NeoPHP\Process\Console\Contract\AbstractConsole;
+use NeoPHP\Process\Console\Contract\InputInterface;
+use NeoPHP\Process\Console\Contract\OutputInterface;
+use NeoPHP\Process\Console\IO\Formatter;
+use NeoPHP\Process\Console\IO\InputArgument;
+use NeoPHP\Process\Console\IO\InputOption;
 use ReflectionClass;
 use ReflectionNamedType;
 use Throwable;
 
-class DebugContainerCommand extends AbstractCommand
+#[AsCommand(name: 'debug:container', description: 'Lists the services of the container or shows one of them')]
+class DebugContainerCommand extends AbstractConsole
 {
-    protected string $name = 'debug:container';
-
-    protected string $description = 'Lists the services of the container or shows one of them. Usage: debug:container [filter|id] [--dump] [--parameters]';
-
     public function __construct(protected ContainerInterface $container, protected DebugInterface $debug)
     {
     }
 
-    public function execute(Input $input, Output $output): int
+    protected function configure(InputInterface $input, OutputInterface $output): void
     {
-        $search = (string) ($input->getArgument(0) ?? '');
+        $input->addArgument('search', InputArgument::OPTIONAL, 'A service id to show, or a text to filter the list');
+        $input->addOption('dump', 'd', InputOption::VALUE_NONE, 'Resolve the service and dump it (with an id)');
+        $input->addOption('parameters', 'p', InputOption::VALUE_NONE, 'List the parameters instead of the services');
+        $this->addExample('debug:container');
+        $this->addExample('debug:container Router');
+        $this->addExample('debug:container kernel.root_path');
+        $this->addExample('debug:container "NeoPHP\\Component\\Routing\\Contract\\RoutingInterface" --dump');
+        $this->addExample('debug:container --parameters');
+    }
+
+    protected function do(InputInterface $input, OutputInterface $output): int
+    {
+        $search = (string) ($input->getArgument('search') ?? '');
         $definitions = $this->container->getDefinitions();
         $aliases = $this->container->getAliases();
 
         if ($search !== '' && (isset($definitions[$search]) || isset($aliases[$search]))) {
-            return $this->show($search, $definitions, $aliases, (bool) $input->getOption('dump', false), $output);
+            return $this->show($search, $definitions, $aliases, (bool) $input->getOption('dump'), $output);
         }
 
-        $parameters = (bool) $input->getOption('parameters', false);
+        $parameters = (bool) $input->getOption('parameters');
         $rows = [];
 
         foreach ($definitions as $id => $definition) {
@@ -55,19 +68,19 @@ class DebugContainerCommand extends AbstractCommand
         }
 
         if ($rows === []) {
-            $output->writeln('<comment>No service found.</comment>');
+            $output->note($search === '' ? 'No service found.' : 'No service matches "' . $search . '".');
 
             return self::SUCCESS;
         }
 
         usort($rows, static fn (array $a, array $b): int => strcmp($a[0], $b[0]));
         $output->table(['Id', 'Kind', $parameters ? 'Value' : 'Class', 'Resolved'], $rows);
-        $output->writeln(sprintf('%d result(s). Show one with <info>php bin/neo debug:container <id> [--dump]</info>.', count($rows)));
+        $output->text(sprintf('%d result(s). Show one with <info>php bin/neo debug:container \\<id> [--dump]</info>.', count($rows)));
 
         return self::SUCCESS;
     }
 
-    protected function show(string $id, array $definitions, array $aliases, bool $dump, Output $output): int
+    protected function show(string $id, array $definitions, array $aliases, bool $dump, OutputInterface $output): int
     {
         $target = $id;
         $seen = [];
@@ -99,10 +112,9 @@ class DebugContainerCommand extends AbstractCommand
 
         if ($dump) {
             try {
-                $colors = getenv('NO_COLOR') === false && defined('STDOUT') && function_exists('stream_isatty') && @stream_isatty(STDOUT);
-                $output->write($this->debug->toText($this->container->get($target), $target, $colors));
+                $output->write(Formatter::escape($this->debug->toText($this->container->get($target), $target, $output->isDecorated())));
             } catch (Throwable $exception) {
-                $output->writeln(sprintf('<error>Unable to resolve "%s": %s</error>', $target, $exception->getMessage()));
+                $output->error(sprintf('Unable to resolve "%s": %s', $target, $exception->getMessage()));
 
                 return self::FAILURE;
             }

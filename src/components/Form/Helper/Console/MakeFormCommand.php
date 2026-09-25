@@ -8,32 +8,34 @@ use NeoPHP\Component\Container\Contract\ContainerInterface;
 use NeoPHP\Component\Form\Maker\FormMaker;
 use NeoPHP\Package\Orm\Contract\OrmInterface;
 use NeoPHP\Package\Orm\Provider\OrmProvider;
-use NeoPHP\Process\Console\Contract\AbstractCommand;
-use NeoPHP\Process\Console\IO\Input;
-use NeoPHP\Process\Console\IO\Output;
+use NeoPHP\Process\Console\Attribute\AsCommand;
+use NeoPHP\Process\Console\Contract\AbstractConsole;
+use NeoPHP\Process\Console\Contract\InputInterface;
+use NeoPHP\Process\Console\Contract\OutputInterface;
+use NeoPHP\Process\Console\IO\InputArgument;
 use Throwable;
 
-class MakeFormCommand extends AbstractCommand
+#[AsCommand(name: 'make:form', description: 'Generates a form class in src/Form/')]
+class MakeFormCommand extends AbstractConsole
 {
-    protected string $name = 'make:form';
-
-    protected string $description = 'Generates a form class in src/Form/. Usage: make:form Post [Entity] [--force]';
-
     public function __construct(protected ContainerInterface $container)
     {
     }
 
-    public function execute(Input $input, Output $output): int
+    protected function configure(InputInterface $input, OutputInterface $output): void
     {
-        $name = $input->getArgument(0);
+        $input->addArgument('name', InputArgument::REQUIRED, 'The form name (the "Type" suffix is added)');
+        $input->addArgument('entity', InputArgument::OPTIONAL, 'The entity mapped by the form (without it, the form works with an array)');
+        $this->setHelp('With an entity, one field is generated per mapped property. An existing form is only replaced with --force.');
+        $this->addExample('make:form Contact');
+        $this->addExample('make:form Post Post');
+        $this->addExample('make:form Post Post --force');
+    }
 
-        if ($name === null || $name === '') {
-            $output->writeln('<error>Missing form name.</error> Usage: php bin/neo make:form Post [Entity] (without entity: a form working with an array)');
-
-            return self::INVALID;
-        }
-
-        $entity = $input->getArgument(1);
+    protected function do(InputInterface $input, OutputInterface $output): int
+    {
+        $name = (string) $input->getArgument('name');
+        $entity = (string) ($input->getArgument('entity') ?? '');
         $root = (string) $this->container->get('kernel.root_path');
         $orm = $this->container->has(OrmInterface::class) ? $this->container->get(OrmInterface::class) : null;
         $maker = new FormMaker($root . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Form', 'App\\Form', $orm);
@@ -41,25 +43,26 @@ class MakeFormCommand extends AbstractCommand
         try {
             $entityClass = null;
 
-            if ($entity !== null && $entity !== '') {
+            if ($entity !== '') {
                 $entityClass = $this->resolveEntity($entity);
 
                 if ($entityClass === null) {
-                    $output->writeln(sprintf('<error>The entity "%s" does not exist.</error>', $entity));
+                    $output->error(sprintf('The entity "%s" does not exist.', $entity));
 
                     return self::FAILURE;
                 }
             }
 
-            [$class, $file, $fields] = $maker->make($name, $entityClass, (bool) $input->getOption('force', false));
+            [$class, $file, $fields] = $maker->make($name, $entityClass, (bool) $input->getOption('force'));
         } catch (Throwable $exception) {
-            $output->writeln(sprintf('<error>%s</error>', $exception->getMessage()));
+            $output->error($exception->getMessage());
 
             return self::FAILURE;
         }
 
-        $output->writeln(sprintf('<success>created</success>  %s', $file));
-        $output->writeln(sprintf('%d field(s)%s. Use it in a controller: <info>$form = $this->createForm(%s::class%s);</info>', count($fields), $entityClass !== null ? ' from ' . $entityClass : '', substr($class, (int) strrpos($class, '\\') + 1), $entityClass !== null ? ', $entity' : ''));
+        $output->writeln(sprintf('  <success>created</success>  %s', $file));
+        $output->success(sprintf('%d field(s)%s.', count($fields), $entityClass !== null ? ' from ' . $entityClass : ''));
+        $output->text(sprintf('Use it in a controller: <info>$form = $this->createForm(%s::class%s);</info>', substr($class, (int) strrpos($class, '\\') + 1), $entityClass !== null ? ', $entity' : ''));
 
         return self::SUCCESS;
     }

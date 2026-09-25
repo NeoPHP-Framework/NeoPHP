@@ -6,29 +6,34 @@ namespace NeoPHP\Component\Kernel\Helper\Console;
 
 use FilesystemIterator;
 use NeoPHP\Component\Container\Contract\ContainerInterface;
-use NeoPHP\Process\Console\Contract\AbstractCommand;
-use NeoPHP\Process\Console\IO\Input;
-use NeoPHP\Process\Console\IO\Output;
+use NeoPHP\Process\Console\Attribute\AsCommand;
+use NeoPHP\Process\Console\Contract\AbstractConsole;
+use NeoPHP\Process\Console\Contract\InputInterface;
+use NeoPHP\Process\Console\Contract\OutputInterface;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use SplFileInfo;
 
-class CacheClearCommand extends AbstractCommand
+#[AsCommand(name: 'cache:clear', description: 'Clears the application cache (var/cache/): routes, Twig templates...', aliases: ['cc'])]
+class CacheClearCommand extends AbstractConsole
 {
-    protected string $name = 'cache:clear';
-
-    protected string $description = 'Clears the application cache (var/cache/): routes, Twig templates...';
-
     public function __construct(protected ContainerInterface $container)
     {
     }
 
-    public function execute(Input $input, Output $output): int
+    protected function configure(InputInterface $input, OutputInterface $output): void
+    {
+        $this->addExample('cache:clear');
+        $this->addExample('cache:clear --env=prod');
+        $this->addExample('cache:clear -v');
+    }
+
+    protected function do(InputInterface $input, OutputInterface $output): int
     {
         $cachePath = (string) $this->container->get('kernel.cache_path');
 
         if (!is_dir($cachePath)) {
-            $output->writeln(sprintf('<comment>The cache directory %s does not exist.</comment>', $cachePath));
+            $output->note(sprintf('The cache directory %s does not exist.', $cachePath));
 
             return self::SUCCESS;
         }
@@ -51,6 +56,7 @@ class CacheClearCommand extends AbstractCommand
 
             if (@unlink($file->getPathname())) {
                 $removed++;
+                $output->writeln('  <muted>removed</muted> ' . $file->getPathname(), OutputInterface::VERBOSITY_VERBOSE);
             }
         }
 
@@ -58,7 +64,7 @@ class CacheClearCommand extends AbstractCommand
             @opcache_reset();
         }
 
-        $output->writeln(sprintf('<success>Cache cleared.</success> %d file(s) removed from %s', $removed, $cachePath));
+        $output->success(sprintf('Cache cleared: %d file(s) removed from %s', $removed, $cachePath));
 
         return self::SUCCESS;
     }

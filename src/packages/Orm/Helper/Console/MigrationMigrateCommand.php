@@ -6,28 +6,36 @@ namespace NeoPHP\Package\Orm\Helper\Console;
 
 use NeoPHP\Package\Orm\Contract\MigrationInterface;
 use NeoPHP\Package\Orm\Migration\Migrator;
-use NeoPHP\Process\Console\Contract\AbstractCommand;
-use NeoPHP\Process\Console\IO\Input;
-use NeoPHP\Process\Console\IO\Output;
+use NeoPHP\Process\Console\Attribute\AsCommand;
+use NeoPHP\Process\Console\Contract\AbstractConsole;
+use NeoPHP\Process\Console\Contract\InputInterface;
+use NeoPHP\Process\Console\Contract\OutputInterface;
+use NeoPHP\Process\Console\IO\Formatter;
+use NeoPHP\Process\Console\IO\InputOption;
 use Throwable;
 
-class MigrationMigrateCommand extends AbstractCommand
+#[AsCommand(name: 'migration:migrate', description: 'Executes the migrations not executed yet', aliases: ['migrate'])]
+class MigrationMigrateCommand extends AbstractConsole
 {
-    protected string $name = 'migration:migrate';
-
-    protected string $description = 'Executes the migrations not executed yet. Options: --dry-run';
-
     public function __construct(protected Migrator $migrator)
     {
     }
 
-    public function execute(Input $input, Output $output): int
+    protected function configure(InputInterface $input, OutputInterface $output): void
     {
-        $dryRun = (bool) $input->getOption('dry-run', false);
+        $input->addOption('dry-run', null, InputOption::VALUE_NONE, 'Show the SQL statements without executing them');
+        $this->addExample('migration:migrate');
+        $this->addExample('migration:migrate --dry-run');
+        $this->addExample('migration:migrate -v');
+    }
+
+    protected function do(InputInterface $input, OutputInterface $output): int
+    {
+        $dryRun = (bool) $input->getOption('dry-run');
 
         try {
             if ($this->migrator->getPending() === []) {
-                $output->writeln('<comment>Already up to date: no migration to execute.</comment>');
+                $output->note('Already up to date: no migration to execute.');
 
                 return self::SUCCESS;
             }
@@ -35,19 +43,21 @@ class MigrationMigrateCommand extends AbstractCommand
             $executed = $this->migrator->migrate($dryRun, static function (MigrationInterface $migration, string $direction, array $statements) use ($output, $dryRun): void {
                 $output->writeln(sprintf('  <info>up</info>  Migration_%s %s<muted>(%d statement(s))</muted>', $migration->getVersion(), $migration->getDescription() !== '' ? $migration->getDescription() . ' ' : '', count($statements)));
 
-                if ($dryRun) {
-                    foreach ($statements as [$sql]) {
-                        $output->writeln('      ' . $sql . ';');
-                    }
+                foreach ($statements as [$sql]) {
+                    $output->writeln('      <muted>' . Formatter::escape((string) $sql) . ';</muted>', $dryRun ? OutputInterface::VERBOSITY_NORMAL : OutputInterface::VERBOSITY_VERBOSE);
                 }
             });
         } catch (Throwable $exception) {
-            $output->writeln(sprintf('<error>%s</error>', $exception->getMessage()));
+            $output->error($exception->getMessage());
 
             return self::FAILURE;
         }
 
-        $output->writeln($dryRun ? sprintf('<comment>Dry run: %d migration(s) not executed.</comment>', count($executed)) : sprintf('<success>%d migration(s) executed.</success>', count($executed)));
+        if ($dryRun) {
+            $output->note(sprintf('Dry run: %d migration(s) not executed.', count($executed)));
+        } else {
+            $output->success(sprintf('%d migration(s) executed.', count($executed)));
+        }
 
         return self::SUCCESS;
     }

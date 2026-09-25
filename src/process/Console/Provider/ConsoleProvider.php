@@ -6,7 +6,10 @@ namespace NeoPHP\Process\Console\Provider;
 
 use NeoPHP\Component\Container\Contract\AbstractProvider;
 use NeoPHP\Component\Container\Contract\ContainerInterface;
+use NeoPHP\Process\Console\Command\HelpCommand;
 use NeoPHP\Process\Console\Command\InstallCommand;
+use NeoPHP\Process\Console\Command\ListCommand;
+use NeoPHP\Process\Console\Command\MakeCommandCommand;
 use NeoPHP\Process\Console\Command\RouteListCommand;
 use NeoPHP\Process\Console\Command\ServeCommand;
 use NeoPHP\Process\Console\ConsoleManager;
@@ -16,7 +19,10 @@ use NeoPHP\Process\Console\Discovery\CommandDiscovery;
 class ConsoleProvider extends AbstractProvider
 {
     public const COMMANDS = [
+        HelpCommand::class,
         InstallCommand::class,
+        ListCommand::class,
+        MakeCommandCommand::class,
         RouteListCommand::class,
         ServeCommand::class,
     ];
@@ -26,8 +32,6 @@ class ConsoleProvider extends AbstractProvider
         'packages' => 'NeoPHP\\Package\\',
         'process' => 'NeoPHP\\Process\\',
     ];
-
-    public const APPLICATION_NAMESPACE = 'App\\';
 
     public function register(ContainerInterface $container): void
     {
@@ -54,7 +58,7 @@ class ConsoleProvider extends AbstractProvider
             $discovery->addSource($frameworkPath . DIRECTORY_SEPARATOR . $directory, $namespace);
         }
 
-        $discovery->addSource($rootPath . DIRECTORY_SEPARATOR . 'src', self::APPLICATION_NAMESPACE);
+        $discovery->addApplicationSource($rootPath . DIRECTORY_SEPARATOR . 'src');
 
         return array_values(array_unique([...self::COMMANDS, ...$discovery->discover()]));
     }
