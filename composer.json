@@ -14,7 +14,8 @@
         "orm",
         "form",
         "security",
-        "debug"
+        "debug",
+        "mailer"
     ],
     "require": {
         "php": ">=8.2"
@@ -23,7 +24,8 @@
         "twig/twig": "<3.0"
     },
     "suggest": {
-        "ext-fileinfo": "Required to detect the mime type of uploaded files (File and Image constraints)",
+        "ext-fileinfo": "Required to detect the mime type of uploaded files (File and Image constraints) and of email attachments",
+        "ext-openssl": "Required to send emails over SSL/TLS (smtps:// or STARTTLS)",
         "ext-pdo": "Required to use the Database component",
         "ext-pdo_mysql": "Required to connect to MySQL / MariaDB databases",
         "ext-pdo_pgsql": "Required to connect to PostgreSQL databases",

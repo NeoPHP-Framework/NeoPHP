@@ -12,6 +12,7 @@ use NeoPHP\Component\Event\Helper\Controller\EventController;
 use NeoPHP\Component\Flash\Helper\Controller\FlashController;
 use NeoPHP\Component\Form\Helper\Controller\FormController;
 use NeoPHP\Component\Http\Helper\Controller\HttpController;
+use NeoPHP\Component\Mailer\Helper\Controller\MailerController;
 use NeoPHP\Component\Routing\Helper\Controller\RoutingController;
 use NeoPHP\Component\Session\Helper\Controller\SessionController;
 use NeoPHP\Component\Validator\Helper\Controller\ValidatorController;
@@ -29,6 +30,7 @@ abstract class AbstractController implements ControllerInterface
     use FlashController;
     use FormController;
     use HttpController;
+    use MailerController;
     use OrmController;
     use RoutingController;
     use SecurityController;
