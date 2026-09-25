@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace NeoPHP\Process\Console\Discovery;
 
 use FilesystemIterator;
+use NeoPHP\Component\Kernel\Discovery\ClassFinder;
+use NeoPHP\Process\Console\Attribute\AsCommand;
 use NeoPHP\Process\Console\Contract\CommandInterface;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -16,6 +18,8 @@ class CommandDiscovery
     public const DIRECTORY = 'Helper/Console';
 
     protected array $sources = [];
+
+    protected array $applications = [];
 
     public function __construct(array $sources = [])
     {
@@ -31,6 +35,13 @@ class CommandDiscovery
         return $this;
     }
 
+    public function addApplicationSource(string $path): static
+    {
+        $this->applications[] = rtrim(str_replace('\\', '/', $path), '/');
+
+        return $this;
+    }
+
     public function getSources(): array
     {
         return $this->sources;
@@ -41,10 +52,27 @@ class CommandDiscovery
         $classes = [];
 
         foreach ($this->sources as $path => $namespace) {
-            $classes = [...$classes, ...$this->scan($path, $namespace)];
+            array_push($classes, ...$this->scan($path, $namespace));
         }
 
-        return array_values(array_unique($classes));
+        $finder = new ClassFinder();
+
+        foreach ($this->applications as $path) {
+            if (!is_dir($path)) {
+                continue;
+            }
+
+            foreach ($finder->find($path, 'AsCommand') as $class) {
+                if ($this->isCommand($class)) {
+                    $classes[] = $class;
+                }
+            }
+        }
+
+        $classes = array_values(array_unique($classes));
+        sort($classes);
+
+        return $classes;
     }
 
     protected function scan(string $path, string $namespace): array
@@ -69,17 +97,22 @@ class CommandDiscovery
 
             $class = $namespace . str_replace('/', '\\', substr($relative, 0, -4));
 
-            if (!class_exists($class) || !is_subclass_of($class, CommandInterface::class)) {
-                continue;
-            }
-
-            if ((new ReflectionClass($class))->isInstantiable()) {
+            if ($this->isCommand($class)) {
                 $classes[] = $class;
             }
         }
 
-        sort($classes);
-
         return $classes;
+    }
+
+    protected function isCommand(string $class): bool
+    {
+        if (!class_exists($class) || !is_subclass_of($class, CommandInterface::class)) {
+            return false;
+        }
+
+        $reflection = new ReflectionClass($class);
+
+        return $reflection->isInstantiable() && $reflection->getAttributes(AsCommand::class) !== [];
     }
 }
