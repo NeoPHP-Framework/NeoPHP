@@ -309,6 +309,25 @@ class Output implements OutputInterface
         }, false);
     }
 
+    public function select(string $question, array $choices, int|string|null $default = null, bool $strict = true, ?callable $validator = null): mixed
+    {
+        if ($choices === [] && $strict) {
+            throw new ConsoleException('The question "{question}" has no choice.', 0, null, ['question' => $question]);
+        }
+
+        $list = array_is_list($choices);
+        $defaultLabel = $default === null ? null : (string) ($list && is_int($default) && array_key_exists($default, $choices) ? $choices[$default] : $default);
+        $label = sprintf(' <question>%s</question>%s%s:', $question, $defaultLabel !== null && $defaultLabel !== '' ? ' [<comment>' . Formatter::escape($defaultLabel) . '</comment>]' : '', $choices !== [] && !str_contains($question, ' ? ') ? ' <muted>(? to list)</muted>' : '');
+
+        return $this->prompt($label, $defaultLabel, function (?string $answer) use ($choices, $list, $strict, $validator): mixed {
+            $value = $this->matchChoice(trim((string) $answer), $choices, $list, $strict);
+
+            return $validator !== null ? $validator($value) : $value;
+        }, false, function () use ($choices, $list): void {
+            $this->listChoices($choices, $list);
+        });
+    }
+
     public function secret(string $question, ?callable $validator = null): mixed
     {
         return $this->prompt(sprintf(' <question>%s</question>:', $question), null, $validator, true);
@@ -348,7 +367,66 @@ class Output implements OutputInterface
         $this->progressFinish();
     }
 
-    protected function prompt(string $label, ?string $default, ?callable $validator, bool $hidden): mixed
+    protected function matchChoice(string $answer, array $choices, bool $list, bool $strict): mixed
+    {
+        if ($answer === '') {
+            if ($strict) {
+                throw new InvalidInputException('A value is required: type ? to list the choices.');
+            }
+
+            return null;
+        }
+
+        $keys = array_keys($choices);
+
+        if (ctype_digit($answer) && (int) $answer >= 1 && (int) $answer <= count($keys) && !array_key_exists($answer, $list ? [] : $choices)) {
+            $key = $keys[(int) $answer - 1];
+
+            return $list ? $choices[$key] : $key;
+        }
+
+        $matches = [];
+
+        foreach ($choices as $key => $value) {
+            if (strcasecmp((string) $value, $answer) === 0 || (!$list && strcasecmp((string) $key, $answer) === 0)) {
+                return $list ? $value : $key;
+            }
+
+            if ($strict && (stripos((string) $value, $answer) === 0 || (!$list && stripos((string) $key, $answer) === 0))) {
+                $matches[] = $key;
+            }
+        }
+
+        if (count($matches) === 1) {
+            return $list ? $choices[$matches[0]] : $matches[0];
+        }
+
+        if (count($matches) > 1) {
+            throw new InvalidInputException('"{value}" is ambiguous: {matches}.', 0, null, ['value' => $answer, 'matches' => implode(', ', array_map(static fn (int|string $key): string => (string) ($list ? $choices[$key] : $key), $matches))]);
+        }
+
+        if ($strict) {
+            throw new InvalidInputException('The value "{value}" is not a valid choice: type ? to list the choices.', 0, null, ['value' => $answer]);
+        }
+
+        return $answer;
+    }
+
+    protected function listChoices(array $choices, bool $list): void
+    {
+        $width = strlen((string) count($choices));
+        $keyWidth = $list ? 0 : max(array_map(static fn (int|string $key): int => Formatter::width((string) $key), array_keys($choices)) ?: [0]);
+        $index = 0;
+
+        foreach ($choices as $key => $value) {
+            $index++;
+            $line = sprintf('  <comment>%s</comment>) ', str_pad((string) $index, $width, ' ', STR_PAD_LEFT));
+            $line .= $list ? Formatter::escape((string) $value) : '<info>' . Formatter::escape((string) $key) . '</info>' . str_repeat(' ', $keyWidth - Formatter::width((string) $key)) . '  <muted>' . Formatter::escape((string) $value) . '</muted>';
+            $this->writeln($line, self::VERBOSITY_QUIET);
+        }
+    }
+
+    protected function prompt(string $label, ?string $default, ?callable $validator, bool $hidden, ?callable $help = null): mixed
     {
         if (!$this->interactive || !is_resource($this->inputStream)) {
             return $validator !== null ? $validator($default) : $default;
@@ -371,6 +449,11 @@ class Output implements OutputInterface
             }
 
             $answer = rtrim($answer, "\r\n");
+
+            if ($help !== null && trim($answer) === '?') {
+                $help();
+                continue;
+            }
 
             if ($answer === '' && $default !== null) {
                 $answer = $default;

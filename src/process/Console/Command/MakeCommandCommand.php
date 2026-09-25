@@ -10,6 +10,7 @@ use NeoPHP\Process\Console\Contract\AbstractConsole;
 use NeoPHP\Process\Console\Contract\InputInterface;
 use NeoPHP\Process\Console\Contract\OutputInterface;
 use NeoPHP\Process\Console\Exception\ConsoleException;
+use NeoPHP\Process\Console\Exception\InvalidInputException;
 use NeoPHP\Process\Console\IO\InputArgument;
 use NeoPHP\Process\Console\Maker\CommandMaker;
 
@@ -22,10 +23,29 @@ class MakeCommandCommand extends AbstractConsole
 
     protected function configure(InputInterface $input, OutputInterface $output): void
     {
-        $input->addArgument('class', InputArgument::REQUIRED, 'The class name (SendReport, Admin\CleanUsers)');
+        $input->addArgument('class', InputArgument::REQUIRED, 'The class name (SendReport, Admin\CleanUsers)', null, 'Class name of the command (e.g. SendReport)');
         $input->addArgument('command', InputArgument::OPTIONAL, 'The command name (app:send-report by default)');
         $this->addExample('make:command SendReport');
         $this->addExample('make:command Admin/CleanUsers admin:clean-users --force');
+    }
+
+    protected function interact(InputInterface $input, OutputInterface $output): void
+    {
+        $maker = new CommandMaker('');
+
+        if (!$input->isArgumentProvided('class')) {
+            $input->setArgument('class', $output->ask('Class name of the command (e.g. SendReport)', null, static function (mixed $value) use ($maker): string {
+                try {
+                    return $maker->resolve(trim((string) $value))[2];
+                } catch (ConsoleException $exception) {
+                    throw new InvalidInputException($exception->getMessage());
+                }
+            }));
+        }
+
+        if (!$input->isArgumentProvided('command')) {
+            $input->setArgument('command', $output->ask('Command name', $maker->commandName($maker->resolve((string) $input->getArgument('class'))[2])));
+        }
     }
 
     protected function do(InputInterface $input, OutputInterface $output): int

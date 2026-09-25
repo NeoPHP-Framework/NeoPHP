@@ -74,6 +74,8 @@ interface OutputInterface
 
     public function choice(string $question, array $choices, int|string|null $default = null): mixed;
 
+    public function select(string $question, array $choices, int|string|null $default = null, bool $strict = true, ?callable $validator = null): mixed;
+
     public function secret(string $question, ?callable $validator = null): mixed;
 
     public function progressStart(int $max = 0): void;
