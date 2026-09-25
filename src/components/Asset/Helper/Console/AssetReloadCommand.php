@@ -5,30 +5,38 @@ declare(strict_types=1);
 namespace NeoPHP\Component\Asset\Helper\Console;
 
 use NeoPHP\Component\Asset\Contract\AssetInterface;
-use NeoPHP\Process\Console\Contract\AbstractCommand;
-use NeoPHP\Process\Console\IO\Input;
-use NeoPHP\Process\Console\IO\Output;
+use NeoPHP\Process\Console\Attribute\AsCommand;
+use NeoPHP\Process\Console\Contract\AbstractConsole;
+use NeoPHP\Process\Console\Contract\InputInterface;
+use NeoPHP\Process\Console\Contract\OutputInterface;
+use NeoPHP\Process\Console\IO\InputOption;
 
-class AssetReloadCommand extends AbstractCommand
+#[AsCommand(name: 'asset:reload', description: 'Compiles assets/ into public/builds/ and rebuilds the manifest')]
+class AssetReloadCommand extends AbstractConsole
 {
-    protected string $name = 'asset:reload';
-
-    protected string $description = 'Compiles assets/ into public/builds/ and rebuilds the manifest. Use --minify to minify CSS and JS';
-
     public function __construct(protected AssetInterface $asset)
     {
     }
 
-    public function execute(Input $input, Output $output): int
+    protected function configure(InputInterface $input, OutputInterface $output): void
     {
-        $minify = (bool) $input->getOption('minify', false);
+        $input->addOption('minify', 'm', InputOption::VALUE_NONE, 'Minify the CSS and JS files');
+        $this->addExample('asset:reload');
+        $this->addExample('asset:reload --minify');
+    }
+
+    protected function do(InputInterface $input, OutputInterface $output): int
+    {
+        $minify = (bool) $input->getOption('minify');
+
+        $output->title('Compiling assets');
+        $output->text(sprintf('%s -> %s%s', $this->asset->getSourcePath(), $this->asset->getBuildPath(), $minify ? ' <muted>(minified)</muted>' : ''));
+        $output->newLine();
+
         $built = $this->asset->reload($minify);
 
-        $output->writeln(sprintf('<title>Compiling assets</title> %s -> %s%s', $this->asset->getSourcePath(), $this->asset->getBuildPath(), $minify ? ' (minified)' : ''));
-        $output->writeln();
-
         if ($built === []) {
-            $output->writeln('<comment>No asset found.</comment>');
+            $output->note('No asset found.');
 
             return self::SUCCESS;
         }
@@ -40,8 +48,7 @@ class AssetReloadCommand extends AbstractCommand
         }
 
         $output->table(['Asset', 'Build'], $rows);
-        $output->writeln();
-        $output->writeln(sprintf('<success>%d asset(s) compiled.</success> Manifest: %s', count($built), $this->asset->getManifest()->getFile()));
+        $output->success(sprintf('%d asset(s) compiled. Manifest: %s', count($built), $this->asset->getManifest()->getFile()));
 
         return self::SUCCESS;
     }

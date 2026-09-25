@@ -6,40 +6,50 @@ namespace NeoPHP\Component\Database\Helper\Console;
 
 use NeoPHP\Component\Database\Contract\DatabaseInterface;
 use NeoPHP\Component\Database\Exception\DatabaseException;
-use NeoPHP\Process\Console\Contract\AbstractCommand;
-use NeoPHP\Process\Console\IO\Input;
-use NeoPHP\Process\Console\IO\Output;
+use NeoPHP\Process\Console\Attribute\AsCommand;
+use NeoPHP\Process\Console\Contract\AbstractConsole;
+use NeoPHP\Process\Console\Contract\InputInterface;
+use NeoPHP\Process\Console\Contract\OutputInterface;
+use NeoPHP\Process\Console\IO\Formatter;
+use NeoPHP\Process\Console\IO\InputArgument;
+use NeoPHP\Process\Console\IO\InputOption;
 
-class DatabaseQueryCommand extends AbstractCommand
+#[AsCommand(name: 'database:query', description: 'Executes a SQL query and displays the result', aliases: ['db:query'])]
+class DatabaseQueryCommand extends AbstractConsole
 {
     public const MAX_WIDTH = 60;
-
-    protected string $name = 'database:query';
-
-    protected string $description = 'Executes a SQL query and displays the result. Usage: database:query "SELECT ..." [--connection=name]';
 
     public function __construct(protected DatabaseInterface $database)
     {
     }
 
-    public function execute(Input $input, Output $output): int
+    protected function configure(InputInterface $input, OutputInterface $output): void
     {
-        $sql = trim(implode(' ', $input->getArguments()));
+        $input->addArgument('sql', InputArgument::REQUIRED | InputArgument::IS_ARRAY, 'The SQL query (the words are joined with a space)');
+        $input->addOption('connection', 'c', InputOption::VALUE_REQUIRED, 'The connection to use (default: the default connection)');
+        $this->addExample('database:query "SELECT * FROM user"');
+        $this->addExample('database:query "DELETE FROM session" --connection=logs');
+    }
+
+    protected function do(InputInterface $input, OutputInterface $output): int
+    {
+        $sql = trim(implode(' ', (array) $input->getArgument('sql')));
 
         if ($sql === '') {
-            $output->writeln('<error>Missing SQL query.</error> Usage: php bin/neo database:query "SELECT * FROM user" [--connection=name]');
+            $output->error('The SQL query is empty.');
 
             return self::INVALID;
         }
 
         $connection = $input->getOption('connection');
         $name = is_string($connection) && $connection !== '' ? $connection : null;
+        $output->writeln('<muted>' . Formatter::escape($sql) . '</muted>', OutputInterface::VERBOSITY_VERBOSE);
 
         try {
             $result = $this->database->connection($name)->executeQuery($sql);
 
             if ($result->columnCount() === 0) {
-                $output->writeln(sprintf('<success>Query executed.</success> %d row(s) affected.', $result->rowCount()));
+                $output->success(sprintf('Query executed. %d row(s) affected.', $result->rowCount()));
 
                 return self::SUCCESS;
             }
@@ -47,19 +57,19 @@ class DatabaseQueryCommand extends AbstractCommand
             $columns = $result->getColumnNames();
             $rows = array_map(fn (array $row): array => array_map(fn (mixed $value): string => $this->format($value), $row), $result->fetchAllNumeric());
         } catch (DatabaseException $exception) {
-            $output->writeln(sprintf('<error>%s</error>', $exception->getMessage()));
+            $output->error($exception->getMessage());
 
             return self::FAILURE;
         }
 
         if ($rows === []) {
-            $output->writeln('<comment>No rows.</comment>');
+            $output->note('No rows.');
 
             return self::SUCCESS;
         }
 
         $output->table($columns, $rows);
-        $output->writeln(sprintf('%d row(s)', count($rows)));
+        $output->text(sprintf('%d row(s)', count($rows)));
 
         return self::SUCCESS;
     }
@@ -75,6 +85,6 @@ class DatabaseQueryCommand extends AbstractCommand
 
         $value = str_replace(["\r\n", "\n", "\r", "\t"], ' ', $value);
 
-        return mb_strlen($value) > self::MAX_WIDTH ? mb_substr($value, 0, self::MAX_WIDTH - 3) . '...' : $value;
+        return Formatter::escape(mb_strlen($value) > self::MAX_WIDTH ? mb_substr($value, 0, self::MAX_WIDTH - 3) . '...' : $value);
     }
 }
