@@ -18,6 +18,10 @@ abstract class AbstractInstaller implements InstallerInterface
         'bin/neo',
     ];
 
+    public const MERGEABLE = [
+        '.env',
+    ];
+
     public const DIRECTORIES = [
         'assets',
         'config/packages',
@@ -96,7 +100,9 @@ abstract class AbstractInstaller implements InstallerInterface
             $exists = is_file($target);
 
             if ($exists && !$force) {
-                $report[$relative] = InstallerInterface::STATUS_SKIPPED;
+                $report[$relative] = in_array($relative, static::MERGEABLE, true) && $this->mergeEnv($target, strtr((string) file_get_contents($stub), $variables))
+                    ? InstallerInterface::STATUS_UPDATED
+                    : InstallerInterface::STATUS_SKIPPED;
                 continue;
             }
 
@@ -152,6 +158,49 @@ abstract class AbstractInstaller implements InstallerInterface
         }
 
         return InstallerInterface::STATUS_UPDATED;
+    }
+
+    protected function mergeEnv(string $file, string $stub): bool
+    {
+        $content = (string) file_get_contents($file);
+        $defined = [];
+
+        foreach (preg_split('/\R/', $content) ?: [] as $line) {
+            if (preg_match('/^\s*#?\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*=/', $line, $m) === 1) {
+                $defined[$m[1]] = true;
+            }
+        }
+
+        $missing = [];
+        $comments = [];
+
+        foreach (preg_split('/\R/', $stub) ?: [] as $line) {
+            if (preg_match('/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*=/', $line, $m) === 1) {
+                if (!isset($defined[$m[1]])) {
+                    array_push($missing, ...$comments);
+                    $missing[] = $line;
+                    $defined[$m[1]] = true;
+                }
+
+                $comments = [];
+            } elseif (str_starts_with(ltrim($line), '#')) {
+                $comments[] = $line;
+            } else {
+                $comments = [];
+            }
+        }
+
+        if ($missing === []) {
+            return false;
+        }
+
+        $content = rtrim($content, "\r\n") . PHP_EOL . PHP_EOL . implode(PHP_EOL, $missing) . PHP_EOL;
+
+        if (file_put_contents($file, $content) === false) {
+            throw new InstallerException('Unable to update the file "{file}".', 0, null, ['file' => $file]);
+        }
+
+        return true;
     }
 
     protected function makeDirectory(string $directory): void
