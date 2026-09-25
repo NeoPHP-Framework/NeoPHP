@@ -5,23 +5,29 @@ declare(strict_types=1);
 namespace NeoPHP\Component\Service\Helper\Console;
 
 use NeoPHP\Component\Service\Contract\ServiceInterface;
-use NeoPHP\Process\Console\Contract\AbstractCommand;
-use NeoPHP\Process\Console\IO\Input;
-use NeoPHP\Process\Console\IO\Output;
+use NeoPHP\Process\Console\Attribute\AsCommand;
+use NeoPHP\Process\Console\Contract\AbstractConsole;
+use NeoPHP\Process\Console\Contract\InputInterface;
+use NeoPHP\Process\Console\Contract\OutputInterface;
+use NeoPHP\Process\Console\IO\InputArgument;
 
-class ServiceListCommand extends AbstractCommand
+#[AsCommand(name: 'service:list', description: 'Lists the services of config/services.yaml, the aliases and the interfaces bound automatically')]
+class ServiceListCommand extends AbstractConsole
 {
-    protected string $name = 'service:list';
-
-    protected string $description = 'Lists the services of config/services.yaml, the aliases and the interfaces bound automatically';
-
     public function __construct(protected ServiceInterface $services)
     {
     }
 
-    public function execute(Input $input, Output $output): int
+    protected function configure(InputInterface $input, OutputInterface $output): void
     {
-        $filter = (string) ($input->getArgument(0) ?? '');
+        $input->addArgument('filter', InputArgument::OPTIONAL, 'Only show the services whose id or class contains this text');
+        $this->addExample('service:list');
+        $this->addExample('service:list Repository');
+    }
+
+    protected function do(InputInterface $input, OutputInterface $output): int
+    {
+        $filter = (string) ($input->getArgument('filter') ?? '');
         $rows = [];
 
         foreach ($this->services->getServices() as $id => $definition) {
@@ -41,7 +47,7 @@ class ServiceListCommand extends AbstractCommand
         }
 
         if ($rows === []) {
-            $output->writeln('<comment>No service found.</comment>');
+            $output->note($filter === '' ? 'No service found.' : 'No service matches "' . $filter . '".');
 
             return self::SUCCESS;
         }

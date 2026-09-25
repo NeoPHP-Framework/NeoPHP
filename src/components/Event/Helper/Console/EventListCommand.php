@@ -6,23 +6,29 @@ namespace NeoPHP\Component\Event\Helper\Console;
 
 use NeoPHP\Component\Event\Contract\AbstractEventDispatcher;
 use NeoPHP\Component\Event\Contract\EventDispatcherInterface;
-use NeoPHP\Process\Console\Contract\AbstractCommand;
-use NeoPHP\Process\Console\IO\Input;
-use NeoPHP\Process\Console\IO\Output;
+use NeoPHP\Process\Console\Attribute\AsCommand;
+use NeoPHP\Process\Console\Contract\AbstractConsole;
+use NeoPHP\Process\Console\Contract\InputInterface;
+use NeoPHP\Process\Console\Contract\OutputInterface;
+use NeoPHP\Process\Console\IO\InputArgument;
 
-class EventListCommand extends AbstractCommand
+#[AsCommand(name: 'event:list', description: 'Lists the events and their listeners in the order they are called')]
+class EventListCommand extends AbstractConsole
 {
-    protected string $name = 'event:list';
-
-    protected string $description = 'Lists the events and their listeners in the order they are called';
-
     public function __construct(protected EventDispatcherInterface $events)
     {
     }
 
-    public function execute(Input $input, Output $output): int
+    protected function configure(InputInterface $input, OutputInterface $output): void
     {
-        $filter = (string) ($input->getArgument(0) ?? '');
+        $input->addArgument('filter', InputArgument::OPTIONAL, 'Only show the events whose name contains this text');
+        $this->addExample('event:list');
+        $this->addExample('event:list Response');
+    }
+
+    protected function do(InputInterface $input, OutputInterface $output): int
+    {
+        $filter = (string) ($input->getArgument('filter') ?? '');
         $rows = [];
 
         foreach ($this->events->getListeners() as $event => $listeners) {
@@ -36,7 +42,7 @@ class EventListCommand extends AbstractCommand
         }
 
         if ($rows === []) {
-            $output->writeln('<comment>No listener found.</comment>');
+            $output->note($filter === '' ? 'No listener found.' : 'No event matches "' . $filter . '".');
 
             return self::SUCCESS;
         }

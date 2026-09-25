@@ -5,21 +5,24 @@ declare(strict_types=1);
 namespace NeoPHP\Component\Middleware\Helper\Console;
 
 use NeoPHP\Component\Middleware\Contract\MiddlewareManagerInterface;
-use NeoPHP\Process\Console\Contract\AbstractCommand;
-use NeoPHP\Process\Console\IO\Input;
-use NeoPHP\Process\Console\IO\Output;
+use NeoPHP\Process\Console\Attribute\AsCommand;
+use NeoPHP\Process\Console\Contract\AbstractConsole;
+use NeoPHP\Process\Console\Contract\InputInterface;
+use NeoPHP\Process\Console\Contract\OutputInterface;
 
-class MiddlewareListCommand extends AbstractCommand
+#[AsCommand(name: 'middleware:list', description: 'Lists the global middlewares, the aliases and the groups')]
+class MiddlewareListCommand extends AbstractConsole
 {
-    protected string $name = 'middleware:list';
-
-    protected string $description = 'Lists the global middlewares, the aliases and the groups';
-
     public function __construct(protected MiddlewareManagerInterface $middlewares)
     {
     }
 
-    public function execute(Input $input, Output $output): int
+    protected function configure(InputInterface $input, OutputInterface $output): void
+    {
+        $this->addExample('middleware:list');
+    }
+
+    protected function do(InputInterface $input, OutputInterface $output): int
     {
         $rows = [];
 
@@ -36,7 +39,7 @@ class MiddlewareListCommand extends AbstractCommand
         }
 
         if ($rows === []) {
-            $output->writeln('<comment>No middleware defined.</comment>');
+            $output->note('No middleware defined.');
 
             return self::SUCCESS;
         }
