@@ -36,6 +36,7 @@ use NeoPHP\Component\Kernel\Exception\KernelException;
 use NeoPHP\Component\Kernel\Provider\KernelProvider;
 use NeoPHP\Component\Logger\Contract\LoggerManagerInterface;
 use NeoPHP\Component\Logger\Provider\LoggerProvider;
+use NeoPHP\Component\Mailer\Provider\MailerProvider;
 use NeoPHP\Component\Middleware\Contract\MiddlewareManagerInterface;
 use NeoPHP\Component\Middleware\Provider\MiddlewareProvider;
 use NeoPHP\Component\Routing\Contract\RoutingInterface;
@@ -359,6 +360,7 @@ abstract class AbstractKernel implements KernelInterface
             OrmProvider::class,
             CsrfProvider::class,
             FormProvider::class,
+            MailerProvider::class,
             SecurityProvider::class,
             DebugProvider::class,
             AssetProvider::class,

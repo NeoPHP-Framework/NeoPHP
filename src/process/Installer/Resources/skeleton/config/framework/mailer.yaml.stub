@@ -1,0 +1,9 @@
+dsn: '%env(MAILER_DSN)%'
+
+from: '%env(APP_NAME)% <noreply@example.com>'
+
+envelope:
+  sender: ~
+  recipients: '%env(csv:MAILER_RECIPIENTS)%'
+
+headers: {}
