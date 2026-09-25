@@ -10,7 +10,8 @@
         "routing",
         "http",
         "twig",
-        "database"
+        "database",
+        "orm"
     ],
     "require": {
         "php": ">=8.2"

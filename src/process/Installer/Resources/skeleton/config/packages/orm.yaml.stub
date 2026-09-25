@@ -1,0 +1,19 @@
+connection: ~
+
+entity:
+    path: src/Entity
+    namespace: App\Entity
+
+repository:
+    path: src/Repository
+    namespace: App\Repository
+
+migration:
+    path: migrations
+    namespace: Migrations
+    table: neo_migrations
+
+proxy:
+    path: '%kernel.cache_path%/orm/proxies'
+
+ignore_tables: []

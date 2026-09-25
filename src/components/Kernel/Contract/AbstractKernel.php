@@ -44,6 +44,7 @@ use NeoPHP\Component\Validator\Provider\ValidatorProvider;
 use NeoPHP\Component\View\Provider\ViewProvider;
 use NeoPHP\Package\Dotenv\DotenvManager;
 use NeoPHP\Package\Dotenv\Provider\DotenvProvider;
+use NeoPHP\Package\Orm\Provider\OrmProvider;
 use NeoPHP\Package\Yaml\Provider\YamlProvider;
 use NeoPHP\Process\Console\Provider\ConsoleProvider;
 use NeoPHP\Process\Installer\Provider\InstallerProvider;
@@ -351,6 +352,7 @@ abstract class AbstractKernel implements KernelInterface
             FlashProvider::class,
             ValidatorProvider::class,
             DatabaseProvider::class,
+            OrmProvider::class,
             AssetProvider::class,
             ViewProvider::class,
             ControllerProvider::class,
