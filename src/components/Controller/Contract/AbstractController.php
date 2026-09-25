@@ -6,9 +6,11 @@ namespace NeoPHP\Component\Controller\Contract;
 
 use NeoPHP\Component\Container\Helper\Controller\ContainerController;
 use NeoPHP\Component\Cookie\Helper\Controller\CookieController;
+use NeoPHP\Component\Csrf\Helper\Controller\CsrfController;
 use NeoPHP\Component\Database\Helper\Controller\DatabaseController;
 use NeoPHP\Component\Event\Helper\Controller\EventController;
 use NeoPHP\Component\Flash\Helper\Controller\FlashController;
+use NeoPHP\Component\Form\Helper\Controller\FormController;
 use NeoPHP\Component\Http\Helper\Controller\HttpController;
 use NeoPHP\Component\Routing\Helper\Controller\RoutingController;
 use NeoPHP\Component\Session\Helper\Controller\SessionController;
@@ -20,9 +22,11 @@ abstract class AbstractController implements ControllerInterface
 {
     use ContainerController;
     use CookieController;
+    use CsrfController;
     use DatabaseController;
     use EventController;
     use FlashController;
+    use FormController;
     use HttpController;
     use OrmController;
     use RoutingController;

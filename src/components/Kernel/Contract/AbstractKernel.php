@@ -15,12 +15,14 @@ use NeoPHP\Component\Container\Provider\ContainerProvider;
 use NeoPHP\Component\Controller\Contract\ControllerResolverInterface;
 use NeoPHP\Component\Controller\Provider\ControllerProvider;
 use NeoPHP\Component\Cookie\Provider\CookieProvider;
+use NeoPHP\Component\Csrf\Provider\CsrfProvider;
 use NeoPHP\Component\Database\Provider\DatabaseProvider;
 use NeoPHP\Component\Event\Contract\EventDispatcherInterface;
 use NeoPHP\Component\Event\Provider\EventProvider;
 use NeoPHP\Component\Exception\ExceptionManager;
 use NeoPHP\Component\Exception\Provider\ExceptionProvider;
 use NeoPHP\Component\Flash\Provider\FlashProvider;
+use NeoPHP\Component\Form\Provider\FormProvider;
 use NeoPHP\Component\Http\Provider\HttpProvider;
 use NeoPHP\Component\Http\Request\Request;
 use NeoPHP\Component\Http\Response\JsonResponse;
@@ -353,6 +355,8 @@ abstract class AbstractKernel implements KernelInterface
             ValidatorProvider::class,
             DatabaseProvider::class,
             OrmProvider::class,
+            CsrfProvider::class,
+            FormProvider::class,
             AssetProvider::class,
             ViewProvider::class,
             ControllerProvider::class,

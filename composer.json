@@ -11,7 +11,8 @@
         "http",
         "twig",
         "database",
-        "orm"
+        "orm",
+        "form"
     ],
     "require": {
         "php": ">=8.2"
@@ -20,6 +21,7 @@
         "twig/twig": "<3.0"
     },
     "suggest": {
+        "ext-fileinfo": "Required to detect the mime type of uploaded files (File and Image constraints)",
         "ext-pdo": "Required to use the Database component",
         "ext-pdo_mysql": "Required to connect to MySQL / MariaDB databases",
         "ext-pdo_pgsql": "Required to connect to PostgreSQL databases",

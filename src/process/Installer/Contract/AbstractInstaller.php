@@ -30,6 +30,7 @@ abstract class AbstractInstaller implements InstallerInterface
         'src/Command',
         'src/Entity',
         'src/Event',
+        'src/Form',
         'src/Listener',
         'src/Middleware',
         'src/Repository',
