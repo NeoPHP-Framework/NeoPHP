@@ -4,342 +4,272 @@ declare(strict_types=1);
 
 namespace NeoPHP\Component\Mailer\Mime;
 
-use DateTimeImmutable;
 use DateTimeInterface;
-use NeoPHP\Component\Mailer\Exception\MailerException;
 
-class Email
+class MimeRenderer
 {
-    public const PRIORITY_HIGHEST = 1;
+    public const CRLF = "\r\n";
 
-    public const PRIORITY_HIGH = 2;
+    public const LINE_LENGTH = 78;
 
-    public const PRIORITY_NORMAL = 3;
+    public const ENCODED_WORD_BYTES = 42;
 
-    public const PRIORITY_LOW = 4;
+    public const PARAMETER_LENGTH = 60;
 
-    public const PRIORITY_LOWEST = 5;
-
-    public const PRIORITIES = [
-        self::PRIORITY_HIGHEST => 'Highest',
-        self::PRIORITY_HIGH => 'High',
-        self::PRIORITY_NORMAL => 'Normal',
-        self::PRIORITY_LOW => 'Low',
-        self::PRIORITY_LOWEST => 'Lowest',
-    ];
-
-    public const MAX_WORD_LENGTH = 900;
-
-    public const RESERVED_HEADERS = [
-        'from', 'sender', 'reply-to', 'to', 'cc', 'bcc', 'return-path', 'subject', 'date', 'message-id',
-        'mime-version', 'content-type', 'content-transfer-encoding', 'content-disposition', 'content-id', 'x-priority',
-    ];
-
-    protected array $from = [];
-
-    protected ?Address $sender = null;
-
-    protected array $replyTo = [];
-
-    protected array $to = [];
-
-    protected array $cc = [];
-
-    protected array $bcc = [];
-
-    protected ?Address $returnPath = null;
-
-    protected string $subject = '';
-
-    protected ?string $text = null;
-
-    protected ?string $html = null;
-
-    protected int $priority = self::PRIORITY_NORMAL;
-
-    protected ?DateTimeInterface $date = null;
-
-    protected array $headers = [];
-
-    protected array $attachments = [];
-
-    public function from(Address|string ...$addresses): static
+    public function render(Email $email, string $messageId): string
     {
-        $this->from = Address::createArray($addresses);
+        $headers = [
+            ['Date', $email->getDate()->format(DateTimeInterface::RFC2822)],
+            ['Message-ID', '<' . $messageId . '>'],
+            ['Subject', $this->encodeText($email->getSubject())],
+            ['From', $this->encodeAddresses($email->getFrom())],
+        ];
 
-        return $this;
-    }
-
-    public function addFrom(Address|string ...$addresses): static
-    {
-        array_push($this->from, ...Address::createArray($addresses));
-
-        return $this;
-    }
-
-    public function sender(Address|string $address): static
-    {
-        $this->sender = Address::create($address);
-
-        return $this;
-    }
-
-    public function replyTo(Address|string ...$addresses): static
-    {
-        $this->replyTo = Address::createArray($addresses);
-
-        return $this;
-    }
-
-    public function addReplyTo(Address|string ...$addresses): static
-    {
-        array_push($this->replyTo, ...Address::createArray($addresses));
-
-        return $this;
-    }
-
-    public function to(Address|string ...$addresses): static
-    {
-        $this->to = Address::createArray($addresses);
-
-        return $this;
-    }
-
-    public function addTo(Address|string ...$addresses): static
-    {
-        array_push($this->to, ...Address::createArray($addresses));
-
-        return $this;
-    }
-
-    public function cc(Address|string ...$addresses): static
-    {
-        $this->cc = Address::createArray($addresses);
-
-        return $this;
-    }
-
-    public function addCc(Address|string ...$addresses): static
-    {
-        array_push($this->cc, ...Address::createArray($addresses));
-
-        return $this;
-    }
-
-    public function bcc(Address|string ...$addresses): static
-    {
-        $this->bcc = Address::createArray($addresses);
-
-        return $this;
-    }
-
-    public function addBcc(Address|string ...$addresses): static
-    {
-        array_push($this->bcc, ...Address::createArray($addresses));
-
-        return $this;
-    }
-
-    public function returnPath(Address|string $address): static
-    {
-        $this->returnPath = Address::create($address);
-
-        return $this;
-    }
-
-    public function subject(string $subject): static
-    {
-        if (preg_match('/[\r\n\0]/', $subject) === 1) {
-            throw new MailerException('The subject cannot contain a line break.');
+        if ($email->getSender() !== null) {
+            $headers[] = ['Sender', $this->encodeAddresses([$email->getSender()])];
         }
 
-        $this->subject = $subject;
-
-        return $this;
-    }
-
-    public function text(?string $text): static
-    {
-        $this->text = $text;
-
-        return $this;
-    }
-
-    public function html(?string $html): static
-    {
-        $this->html = $html;
-
-        return $this;
-    }
-
-    public function priority(int $priority): static
-    {
-        $this->priority = max(self::PRIORITY_HIGHEST, min(self::PRIORITY_LOWEST, $priority));
-
-        return $this;
-    }
-
-    public function date(DateTimeInterface $date): static
-    {
-        $this->date = $date;
-
-        return $this;
-    }
-
-    public function addHeader(string $name, string $value): static
-    {
-        if (preg_match('/^[A-Za-z0-9][A-Za-z0-9-]*$/', $name) !== 1) {
-            throw new MailerException('The header name "{name}" is not valid.', 0, null, ['name' => $name]);
+        foreach (['Reply-To' => $email->getReplyTo(), 'To' => $email->getTo(), 'Cc' => $email->getCc()] as $name => $addresses) {
+            if ($addresses !== []) {
+                $headers[] = [$name, $this->encodeAddresses($addresses)];
+            }
         }
 
-        if (in_array(strtolower($name), self::RESERVED_HEADERS, true)) {
-            throw new MailerException('The header "{name}" is managed by the email: use the dedicated method.', 0, null, ['name' => $name]);
+        $headers[] = ['MIME-Version', '1.0'];
+
+        if ($email->getPriority() !== Email::PRIORITY_NORMAL) {
+            $headers[] = ['X-Priority', $email->getPriority() . ' (' . Email::PRIORITIES[$email->getPriority()] . ')'];
         }
 
-        if (preg_match('/[\r\n\0]/', $value) === 1) {
-            throw new MailerException('The value of the header "{name}" contains a line break.', 0, null, ['name' => $name]);
+        foreach ($email->getHeaders() as [$name, $value]) {
+            $headers[] = [$name, $this->encodeText($value)];
         }
 
-        if (max(array_map('strlen', explode(' ', $value)) ?: [0]) > self::MAX_WORD_LENGTH) {
-            throw new MailerException('The value of the header "{name}" contains a word longer than {max} characters: it cannot be folded.', 0, null, ['name' => $name, 'max' => self::MAX_WORD_LENGTH]);
+        [$partHeaders, $body] = $this->body($email);
+
+        return $this->headers([...$headers, ...$partHeaders]) . self::CRLF . $body;
+    }
+
+    public function generateMessageId(Email $email): string
+    {
+        $from = $email->getSender() ?? ($email->getFrom()[0] ?? null);
+        $domain = $from !== null ? substr($from->getAddress(), (int) strrpos($from->getAddress(), '@') + 1) : 'neophp.local';
+
+        return bin2hex(random_bytes(16)) . '@' . $domain;
+    }
+
+    public function encodeAddresses(array $addresses): string
+    {
+        return implode(', ', array_map(fn (Address $address): string => $this->encodeAddress($address), $addresses));
+    }
+
+    public function encodeAddress(Address $address): string
+    {
+        if ($address->getName() === '') {
+            return $address->getAddress();
         }
 
-        $this->headers[] = [$name, $value];
+        $name = $address->getName();
 
-        return $this;
-    }
-
-    public function removeHeader(string $name): static
-    {
-        $this->headers = array_values(array_filter($this->headers, static fn (array $header): bool => strcasecmp($header[0], $name) !== 0));
-
-        return $this;
-    }
-
-    public function attach(string $body, string $filename, ?string $contentType = null): static
-    {
-        $this->attachments[] = new Attachment($body, $filename, $contentType ?? Attachment::guessContentType($filename));
-
-        return $this;
-    }
-
-    public function attachFromPath(string $path, ?string $filename = null, ?string $contentType = null): static
-    {
-        $this->attachments[] = Attachment::fromPath($path, $filename, $contentType);
-
-        return $this;
-    }
-
-    public function embed(string $body, string $name, ?string $contentType = null): static
-    {
-        $this->attachments[] = new Attachment($body, $name, $contentType ?? Attachment::guessContentType($name), true);
-
-        return $this;
-    }
-
-    public function embedFromPath(string $path, ?string $name = null, ?string $contentType = null): static
-    {
-        $this->attachments[] = Attachment::fromPath($path, $name ?? basename($path), $contentType, true);
-
-        return $this;
-    }
-
-    public function getFrom(): array
-    {
-        return $this->from;
-    }
-
-    public function getSender(): ?Address
-    {
-        return $this->sender;
-    }
-
-    public function getReplyTo(): array
-    {
-        return $this->replyTo;
-    }
-
-    public function getTo(): array
-    {
-        return $this->to;
-    }
-
-    public function getCc(): array
-    {
-        return $this->cc;
-    }
-
-    public function getBcc(): array
-    {
-        return $this->bcc;
-    }
-
-    public function getReturnPath(): ?Address
-    {
-        return $this->returnPath;
-    }
-
-    public function getSubject(): string
-    {
-        return $this->subject;
-    }
-
-    public function getText(): ?string
-    {
-        return $this->text;
-    }
-
-    public function getHtml(): ?string
-    {
-        return $this->html;
-    }
-
-    public function getPriority(): int
-    {
-        return $this->priority;
-    }
-
-    public function getDate(): DateTimeInterface
-    {
-        return $this->date ?? new DateTimeImmutable();
-    }
-
-    public function getHeaders(): array
-    {
-        return $this->headers;
-    }
-
-    public function getAttachments(): array
-    {
-        return array_values(array_filter($this->attachments, static fn (Attachment $attachment): bool => !$attachment->isInline()));
-    }
-
-    public function getEmbedded(): array
-    {
-        return array_values(array_filter($this->attachments, static fn (Attachment $attachment): bool => $attachment->isInline()));
-    }
-
-    public function getRecipients(): array
-    {
-        return [...$this->to, ...$this->cc, ...$this->bcc];
-    }
-
-    public function validate(): void
-    {
-        if ($this->from === []) {
-            throw new MailerException('The email has no sender: call from() or configure "from" in config/framework/mailer.yaml.');
+        if (!$this->isAscii($name)) {
+            $name = $this->encodeWords($name);
+        } elseif (preg_match('/[()<>\[\]:;@\\\\,."]/', $name) === 1) {
+            $name = '"' . addcslashes($name, '"\\') . '"';
         }
 
-        if ($this->getRecipients() === []) {
-            throw new MailerException('The email has no recipient: call to(), cc() or bcc().');
+        return $name . ' <' . $address->getAddress() . '>';
+    }
+
+    public function encodeText(string $text): string
+    {
+        return $this->isAscii($text) ? $text : $this->encodeWords($text);
+    }
+
+    public function encodeWords(string $text): string
+    {
+        $words = [];
+        $chunk = '';
+
+        foreach (preg_split('//u', $text, -1, PREG_SPLIT_NO_EMPTY) ?: str_split($text) as $character) {
+            if (strlen($chunk . $character) > self::ENCODED_WORD_BYTES) {
+                $words[] = '=?UTF-8?B?' . base64_encode($chunk) . '?=';
+                $chunk = '';
+            }
+
+            $chunk .= $character;
         }
 
-        if ($this->text === null && $this->html === null && $this->attachments === []) {
-            throw new MailerException('The email has no body: call text(), html() or attach().');
+        if ($chunk !== '') {
+            $words[] = '=?UTF-8?B?' . base64_encode($chunk) . '?=';
         }
 
-        if (count($this->from) > 1 && $this->sender === null) {
-            throw new MailerException('An email with several "From" addresses must define a sender().');
+        return implode(' ', $words);
+    }
+
+    public function htmlToText(string $html): string
+    {
+        $text = (string) preg_replace('#<(head|style|script)\b[^>]*>.*?</\1>#is', '', $html);
+        $text = (string) preg_replace('#<a\b[^>]*href=(["\'])(.*?)\1[^>]*>(.*?)</a>#is', '$3 ($2)', $text);
+        $text = (string) preg_replace('#<br\s*/?>#i', "\n", $text);
+        $text = (string) preg_replace('#</(p|div|h[1-6]|li|tr|table|blockquote)>#i', "\n\n", $text);
+        $text = (string) preg_replace('#<li\b[^>]*>#i', '- ', $text);
+        $text = html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = (string) preg_replace('/[ \t]+/', ' ', $text);
+        $text = (string) preg_replace('/ *\n */', "\n", $text);
+
+        return trim((string) preg_replace("/\n{3,}/", "\n\n", $text));
+    }
+
+    protected function body(Email $email): array
+    {
+        $html = $email->getHtml();
+        $text = $email->getText() ?? ($html !== null ? $this->htmlToText($html) : null);
+        $parts = [];
+        $embedded = [];
+        $attachments = $email->getAttachments();
+
+        foreach ($email->getEmbedded() as $attachment) {
+            if ($html === null) {
+                $attachments[] = new Attachment($attachment->getBody(), $attachment->getFilename(), $attachment->getContentType());
+                continue;
+            }
+
+            $cid = bin2hex(random_bytes(8)) . '@neophp';
+            $html = (string) preg_replace('/cid:' . preg_quote($attachment->getFilename(), '/') . '(?=["\'\s)>])/', 'cid:' . $cid, $html);
+            $embedded[] = [$attachment, $cid];
         }
+
+        if ($text !== null) {
+            $parts[] = $this->textPart($text, 'text/plain');
+        }
+
+        if ($html !== null) {
+            $parts[] = $this->textPart($html, 'text/html');
+        }
+
+        $content = count($parts) > 1 ? $this->multipart('alternative', $parts) : ($parts[0] ?? null);
+
+        if ($content !== null && $embedded !== []) {
+            $content = $this->multipart('related', [$content, ...array_map(fn (array $item): array => $this->attachmentPart($item[0], $item[1]), $embedded)], count($parts) > 1 ? 'multipart/alternative' : 'text/html');
+        }
+
+        $attachments = array_map(fn (Attachment $attachment): array => $this->attachmentPart($attachment), $attachments);
+
+        if ($attachments !== []) {
+            return $this->multipart('mixed', $content !== null ? [$content, ...$attachments] : $attachments);
+        }
+
+        return $content ?? $this->textPart('', 'text/plain');
+    }
+
+    protected function textPart(string $content, string $type): array
+    {
+        $content = (string) preg_replace('/\r\n|\r|\n/', self::CRLF, $content);
+
+        return [
+            [['Content-Type', $type . '; charset=utf-8'], ['Content-Transfer-Encoding', 'quoted-printable']],
+            quoted_printable_encode($content),
+        ];
+    }
+
+    protected function attachmentPart(Attachment $attachment, ?string $cid = null): array
+    {
+        $headers = [
+            ['Content-Type', $attachment->getContentType() . (str_starts_with($attachment->getContentType(), 'text/') && !str_contains($attachment->getContentType(), 'charset') && preg_match('//u', $attachment->getBody()) === 1 ? '; charset=utf-8' : '') . '; ' . $this->parameter('name', $attachment->getFilename())],
+            ['Content-Transfer-Encoding', 'base64'],
+            ['Content-Disposition', ($cid !== null ? 'inline' : 'attachment') . '; ' . $this->parameter('filename', $attachment->getFilename())],
+        ];
+
+        if ($cid !== null) {
+            $headers[] = ['Content-ID', '<' . $cid . '>'];
+        }
+
+        return [$headers, rtrim(chunk_split(base64_encode($attachment->getBody()), 76, self::CRLF), self::CRLF)];
+    }
+
+    protected function multipart(string $subtype, array $parts, ?string $type = null): array
+    {
+        $boundary = '=_' . bin2hex(random_bytes(12));
+        $body = '';
+
+        foreach ($parts as [$headers, $content]) {
+            $body .= '--' . $boundary . self::CRLF . $this->headers($headers) . self::CRLF . $content . self::CRLF;
+        }
+
+        return [[['Content-Type', 'multipart/' . $subtype . ($type !== null ? '; type="' . $type . '"' : '') . '; boundary="' . $boundary . '"']], $body . '--' . $boundary . '--'];
+    }
+
+    protected function parameter(string $name, string $value): string
+    {
+        if ($this->isAscii($value) && strlen($value) <= self::PARAMETER_LENGTH) {
+            return $name . '="' . addcslashes($value, '"\\') . '"';
+        }
+
+        preg_match_all('/%[0-9A-F]{2}|[^%]/', rawurlencode($value), $matches);
+        $chunks = [];
+        $chunk = '';
+
+        foreach ($matches[0] as $token) {
+            if (strlen($chunk . $token) > self::PARAMETER_LENGTH) {
+                $chunks[] = $chunk;
+                $chunk = '';
+            }
+
+            $chunk .= $token;
+        }
+
+        $chunks[] = $chunk;
+
+        if (count($chunks) === 1) {
+            return $name . "*=utf-8''" . $chunks[0];
+        }
+
+        $parameters = [];
+
+        foreach ($chunks as $index => $part) {
+            $parameters[] = $name . '*' . $index . '*=' . ($index === 0 ? "utf-8''" : '') . $part;
+        }
+
+        return implode('; ', $parameters);
+    }
+
+    protected function headers(array $headers): string
+    {
+        $output = '';
+
+        foreach ($headers as [$name, $value]) {
+            $output .= $this->fold($name . ': ' . $value) . self::CRLF;
+        }
+
+        return $output;
+    }
+
+    protected function fold(string $line): string
+    {
+        if (strlen($line) <= self::LINE_LENGTH) {
+            return $line;
+        }
+
+        $lines = [];
+        $current = '';
+
+        foreach (explode(' ', $line) as $index => $word) {
+            if ($index > 1 && strlen($current) + 1 + strlen($word) > self::LINE_LENGTH) {
+                $lines[] = $current;
+                $current = $word;
+                continue;
+            }
+
+            $current .= ($index > 0 ? ' ' : '') . $word;
+        }
+
+        $lines[] = $current;
+
+        return implode(self::CRLF . ' ', $lines);
+    }
+
+    protected function isAscii(string $value): bool
+    {
+        return preg_match('/[^\x20-\x7E\t]/', $value) !== 1;
     }
 }
