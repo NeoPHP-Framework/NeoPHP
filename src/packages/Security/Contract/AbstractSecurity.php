@@ -10,7 +10,7 @@ use NeoPHP\Component\Event\Contract\EventDispatcherInterface;
 use NeoPHP\Component\Http\Exception\AccessDeniedHttpException;
 use NeoPHP\Component\Http\Request\Request;
 use NeoPHP\Component\Http\Response\Response;
-use NeoPHP\Package\Security\Authentication\AuthenticationManager;
+use NeoPHP\Package\Security\Authenticator\AuthenticationManager;
 use NeoPHP\Package\Security\Authenticator\RememberMeAuthenticator;
 use NeoPHP\Package\Security\Authorization\AccessDecisionManager;
 use NeoPHP\Package\Security\Authorization\AccessMap;
