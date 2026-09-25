@@ -19,7 +19,7 @@ firewalls:
         logout:
             path: /logout
             target: /
-        remember:
+        remember_me:
             lifetime: 604800
         login_throttling:
             max_attempts: 5

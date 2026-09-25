@@ -5,11 +5,12 @@ declare(strict_types=1);
 namespace NeoPHP\Package\Security\RememberMe;
 
 use NeoPHP\Component\Http\Request\Request;
-use NeoPHP\Package\Security\Authenticator\Passport;
+use NeoPHP\Package\Security\Authentication\Passport;
 use NeoPHP\Package\Security\Contract\PasswordAuthenticatedUserInterface;
 use NeoPHP\Package\Security\Contract\UserInterface;
 use NeoPHP\Package\Security\Exception\SecurityException;
 use NeoPHP\Package\Security\Firewall\HttpUtils;
+use NeoPHP\Package\Security\User\UserClass;
 
 class RememberMeHandler
 {
@@ -92,7 +93,7 @@ class RememberMeHandler
     {
         $password = $user instanceof PasswordAuthenticatedUserInterface ? (string) $user->getPassword() : '';
 
-        return hash_hmac('sha256', $user::class . '|' . $identifier . '|' . $expires . '|' . $password, $this->secret);
+        return hash_hmac('sha256', UserClass::of($user) . '|' . $identifier . '|' . $expires . '|' . $password, $this->secret);
     }
 
     protected function cookieOptions(): array

@@ -544,11 +544,12 @@ class QueryBuilder
         $mixed = $this->scalars !== [];
         $results = [];
         $collections = [];
+        $order = $this->hydrationOrder($aliases);
 
         foreach ($rows as $row) {
             $entities = [];
 
-            foreach ($aliases as $alias) {
+            foreach ($order as $alias) {
                 $metadata = $this->orm->getMetadata($this->aliases[$alias]['class']);
                 $data = $this->extract($alias, $row);
                 $entities[$alias] = ($data[$metadata->getIdentifierColumn()] ?? null) === null ? null : $hydrator->hydrate($metadata, $data);
@@ -600,5 +601,51 @@ class QueryBuilder
         }
 
         return array_values($results);
+    }
+
+    protected function hydrationOrder(array $aliases): array
+    {
+        $order = [];
+        $visit = function (string $alias) use (&$visit, &$order, $aliases): void {
+            if (in_array($alias, $order, true)) {
+                return;
+            }
+
+            $children = array_filter($aliases, fn (string $child): bool => $this->aliases[$child]['parent'] === $alias);
+            $before = [];
+            $after = [];
+
+            foreach ($children as $child) {
+                $association = $this->orm->getMetadata($this->aliases[$alias]['class'])->getAssociation((string) $this->aliases[$child]['field']);
+
+                if (in_array($association['type'], ClassMetadata::TO_ONE, true) && $association['owning']) {
+                    $before[] = $child;
+                } else {
+                    $after[] = $child;
+                }
+            }
+
+            foreach ($before as $child) {
+                $visit($child);
+            }
+
+            $order[] = $alias;
+
+            foreach ($after as $child) {
+                $visit($child);
+            }
+        };
+
+        $root = $this->getRootAlias();
+
+        if (in_array($root, $aliases, true)) {
+            $visit($root);
+        }
+
+        foreach ($aliases as $alias) {
+            $visit($alias);
+        }
+
+        return $order;
     }
 }

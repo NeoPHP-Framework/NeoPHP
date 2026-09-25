@@ -37,12 +37,12 @@ class ChainUserProvider implements UserProviderInterface, PasswordUpgraderInterf
     public function refreshUser(UserInterface $user): UserInterface
     {
         foreach ($this->providers as $provider) {
-            if ($provider->supportsClass($user::class)) {
+            if ($provider->supportsClass(UserClass::of($user))) {
                 return $provider->refreshUser($user);
             }
         }
 
-        throw new SecurityException('No user provider supports the class "{class}".', 0, null, ['class' => $user::class]);
+        throw new SecurityException('No user provider supports the class "{class}".', 0, null, ['class' => UserClass::of($user)]);
     }
 
     public function supportsClass(string $class): bool
@@ -59,7 +59,7 @@ class ChainUserProvider implements UserProviderInterface, PasswordUpgraderInterf
     public function upgradePassword(PasswordAuthenticatedUserInterface $user, string $hashedPassword): void
     {
         foreach ($this->providers as $provider) {
-            if ($provider instanceof PasswordUpgraderInterface && $provider->supportsClass($user::class)) {
+            if ($provider instanceof PasswordUpgraderInterface && $provider->supportsClass(UserClass::of($user))) {
                 $provider->upgradePassword($user, $hashedPassword);
 
                 return;

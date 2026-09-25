@@ -10,7 +10,7 @@ use NeoPHP\Component\Event\Contract\EventDispatcherInterface;
 use NeoPHP\Component\Http\Exception\AccessDeniedHttpException;
 use NeoPHP\Component\Http\Request\Request;
 use NeoPHP\Component\Http\Response\Response;
-use NeoPHP\Package\Security\Authenticator\AuthenticationManager;
+use NeoPHP\Package\Security\Authentication\AuthenticationManager;
 use NeoPHP\Package\Security\Authenticator\RememberMeAuthenticator;
 use NeoPHP\Package\Security\Authorization\AccessDecisionManager;
 use NeoPHP\Package\Security\Authorization\AccessMap;
@@ -28,6 +28,7 @@ use NeoPHP\Package\Security\Token\NullToken;
 use NeoPHP\Package\Security\Token\RememberMeToken;
 use NeoPHP\Package\Security\Token\SecurityToken;
 use NeoPHP\Package\Security\Token\TokenStorage;
+use NeoPHP\Package\Security\User\UserClass;
 use NeoPHP\Package\Security\Voter\AuthenticatedVoter;
 use Throwable;
 
@@ -293,7 +294,7 @@ abstract class AbstractSecurity implements SecurityInterface
 
         $session->set($firewall->getSessionKey(), [
             'identifier' => $token->getUserIdentifier(),
-            'class' => $user !== null ? $user::class : null,
+            'class' => $user !== null ? UserClass::of($user) : null,
             'authenticator' => $token->getAuthenticator(),
             'remembered' => $token->isRemembered(),
             'fingerprint' => $user !== null ? self::fingerprint($user) : null,
@@ -385,6 +386,6 @@ abstract class AbstractSecurity implements SecurityInterface
 
     protected static function fingerprint(UserInterface $user): string
     {
-        return hash('sha256', $user::class . '|' . ($user instanceof PasswordAuthenticatedUserInterface ? (string) $user->getPassword() : ''));
+        return hash('sha256', UserClass::of($user) . '|' . ($user instanceof PasswordAuthenticatedUserInterface ? (string) $user->getPassword() : ''));
     }
 }
