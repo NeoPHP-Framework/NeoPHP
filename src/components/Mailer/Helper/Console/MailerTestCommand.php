@@ -29,7 +29,7 @@ class MailerTestCommand extends AbstractConsole
 
     protected function configure(InputInterface $input, OutputInterface $output): void
     {
-        $input->addArgument('to', InputArgument::REQUIRED, 'The recipient');
+        $input->addArgument('to', InputArgument::REQUIRED, 'The recipient', null, 'Recipient email address');
         $input->addOption('from', null, InputOption::VALUE_REQUIRED, 'The sender (default: "from" of config/framework/mailer.yaml)');
         $input->addOption('subject', 's', InputOption::VALUE_REQUIRED, 'The subject', 'NeoPHP test email');
         $input->addOption('body', 'b', InputOption::VALUE_REQUIRED, 'The text body', 'This is a test email sent by the NeoPHP mailer:test command.');

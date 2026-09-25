@@ -24,8 +24,8 @@ class MakeUserCommand extends AbstractConsole
 
     protected function configure(InputInterface $input, OutputInterface $output): void
     {
-        $input->addArgument('name', InputArgument::OPTIONAL, 'The entity name', 'User');
-        $input->addOption('property', 'p', InputOption::VALUE_REQUIRED, 'The property used as identifier', 'email');
+        $input->addArgument('name', InputArgument::OPTIONAL, 'The entity name', 'User', 'Name of the user entity');
+        $input->addOption('property', 'p', InputOption::VALUE_REQUIRED, 'The property used as identifier', 'email', 'Property used to log in (e.g. email, username)');
         $this->addExample('make:user');
         $this->addExample('make:user Admin --property=username');
         $this->addExample('make:user --force');

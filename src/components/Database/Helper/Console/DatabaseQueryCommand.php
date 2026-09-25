@@ -25,7 +25,7 @@ class DatabaseQueryCommand extends AbstractConsole
 
     protected function configure(InputInterface $input, OutputInterface $output): void
     {
-        $input->addArgument('sql', InputArgument::REQUIRED | InputArgument::IS_ARRAY, 'The SQL query (the words are joined with a space)');
+        $input->addArgument('sql', InputArgument::REQUIRED | InputArgument::IS_ARRAY, 'The SQL query (the words are joined with a space)', null, 'SQL query');
         $input->addOption('connection', 'c', InputOption::VALUE_REQUIRED, 'The connection to use (default: the default connection)');
         $this->addExample('database:query "SELECT * FROM user"');
         $this->addExample('database:query "DELETE FROM session" --connection=logs');

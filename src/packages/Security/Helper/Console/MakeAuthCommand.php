@@ -23,8 +23,8 @@ class MakeAuthCommand extends AbstractConsole
 
     protected function configure(InputInterface $input, OutputInterface $output): void
     {
-        $input->addArgument('name', InputArgument::OPTIONAL, 'The controller name', 'SecurityController');
-        $input->addOption('twig', null, InputOption::VALUE_NONE, 'Generate a Twig template instead of a PHP template');
+        $input->addArgument('name', InputArgument::OPTIONAL, 'The controller name', 'SecurityController', 'Name of the login controller');
+        $input->addOption('twig', null, InputOption::VALUE_NONE, 'Generate a Twig template instead of a PHP template', null, 'Generate a Twig template instead of a PHP template');
         $this->addExample('make:auth');
         $this->addExample('make:auth LoginController --twig');
         $this->addExample('make:auth --force');
