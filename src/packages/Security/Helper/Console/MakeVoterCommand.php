@@ -23,7 +23,7 @@ class MakeVoterCommand extends AbstractConsole
 
     protected function configure(InputInterface $input, OutputInterface $output): void
     {
-        $input->addArgument('name', InputArgument::REQUIRED, 'The voter name (the "Voter" suffix is added); the subject is the entity of the same name when it exists');
+        $input->addArgument('name', InputArgument::REQUIRED, 'The voter name (the "Voter" suffix is added); the subject is the entity of the same name when it exists', null, 'Name of the voter (e.g. Post)');
         $this->addExample('make:voter Post');
         $this->addExample('make:voter Post --force');
     }

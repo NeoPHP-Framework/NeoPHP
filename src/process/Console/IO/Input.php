@@ -52,17 +52,17 @@ class Input implements InputInterface
         return $default;
     }
 
-    public function addArgument(string $name, int $mode = InputArgument::OPTIONAL, string $description = '', mixed $default = null): static
+    public function addArgument(string $name, int $mode = InputArgument::OPTIONAL, string $description = '', mixed $default = null, ?string $question = null): static
     {
-        $this->definition->addArgument(new InputArgument($name, $mode, $description, $default));
+        $this->definition->addArgument(new InputArgument($name, $mode, $description, $default, $question));
         $this->bound = false;
 
         return $this;
     }
 
-    public function addOption(string $name, ?string $shortcut = null, int $mode = InputOption::VALUE_NONE, string $description = '', mixed $default = null): static
+    public function addOption(string $name, ?string $shortcut = null, int $mode = InputOption::VALUE_NONE, string $description = '', mixed $default = null, ?string $question = null): static
     {
-        $this->definition->addOption(new InputOption($name, $shortcut, $mode, $description, $default));
+        $this->definition->addOption(new InputOption($name, $shortcut, $mode, $description, $default, $question));
         $this->bound = false;
 
         return $this;
@@ -170,6 +170,11 @@ class Input implements InputInterface
         return $this->definition->hasArgument($name);
     }
 
+    public function isArgumentProvided(string $name): bool
+    {
+        return array_key_exists($name, $this->arguments);
+    }
+
     public function setArgument(string $name, mixed $value): static
     {
         $this->definition->getArgument($name);
@@ -199,6 +204,11 @@ class Input implements InputInterface
     public function hasOption(string $name): bool
     {
         return $this->definition->hasOption($name);
+    }
+
+    public function isOptionProvided(string $name): bool
+    {
+        return array_key_exists($name, $this->options);
     }
 
     public function setOption(string $name, mixed $value): static

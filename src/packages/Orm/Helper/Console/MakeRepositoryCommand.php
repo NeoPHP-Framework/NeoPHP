@@ -27,12 +27,21 @@ class MakeRepositoryCommand extends AbstractConsole
         $this->addExample('make:repository Post --force');
     }
 
+    protected function interact(InputInterface $input, OutputInterface $output): void
+    {
+        $entities = $this->entityMaker->getEntities();
+
+        if (!$input->isArgumentProvided('entity') && $entities !== []) {
+            $input->setArgument('entity', $output->select('Entity of the repository', $entities));
+        }
+    }
+
     protected function do(InputInterface $input, OutputInterface $output): int
     {
         $name = (string) $input->getArgument('entity');
 
         try {
-            [$entityClass] = $this->entityMaker->resolve($name);
+            [$entityClass, , $relative] = $this->entityMaker->resolve($name);
 
             if (!class_exists($entityClass)) {
                 $output->error(sprintf('The entity %s does not exist.', $entityClass));
@@ -41,7 +50,7 @@ class MakeRepositoryCommand extends AbstractConsole
                 return self::FAILURE;
             }
 
-            [$repositoryClass, $file] = $this->repositoryMaker->make($entityClass, (bool) $input->getOption('force'));
+            [$repositoryClass, $file] = $this->repositoryMaker->make($entityClass, (bool) $input->getOption('force'), $relative);
         } catch (OrmException $exception) {
             $output->error($exception->getMessage());
 

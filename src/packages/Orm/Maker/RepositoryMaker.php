@@ -8,10 +8,10 @@ use NeoPHP\Package\Orm\Contract\AbstractRepository;
 
 class RepositoryMaker extends AbstractMaker
 {
-    public function make(string $entityClass, bool $force = false): array
+    public function make(string $entityClass, bool $force = false, ?string $relative = null): array
     {
         $entityShort = self::shortName($entityClass);
-        [$class, $file] = $this->resolve($entityShort, 'Repository');
+        [$class, $file] = $this->resolve($relative ?? $entityShort, 'Repository');
         $code = '<?php' . "\n\n"
             . 'declare(strict_types=1);' . "\n\n"
             . 'namespace ' . self::namespaceOf($class) . ';' . "\n\n"
@@ -27,8 +27,8 @@ class RepositoryMaker extends AbstractMaker
         return [$class, $file];
     }
 
-    public function getRepositoryClass(string $entityClass): string
+    public function getRepositoryClass(string $entityClass, ?string $relative = null): string
     {
-        return $this->resolve(self::shortName($entityClass), 'Repository')[0];
+        return $this->resolve($relative ?? self::shortName($entityClass), 'Repository')[0];
     }
 }
