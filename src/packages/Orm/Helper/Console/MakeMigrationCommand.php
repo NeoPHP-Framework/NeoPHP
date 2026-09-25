@@ -8,32 +8,42 @@ use NeoPHP\Package\Orm\Contract\OrmInterface;
 use NeoPHP\Package\Orm\Migration\MigrationGenerator;
 use NeoPHP\Package\Orm\Migration\Migrator;
 use NeoPHP\Package\Orm\Schema\SchemaTool;
-use NeoPHP\Process\Console\Contract\AbstractCommand;
-use NeoPHP\Process\Console\IO\Input;
-use NeoPHP\Process\Console\IO\Output;
+use NeoPHP\Process\Console\Attribute\AsCommand;
+use NeoPHP\Process\Console\Contract\AbstractConsole;
+use NeoPHP\Process\Console\Contract\InputInterface;
+use NeoPHP\Process\Console\Contract\OutputInterface;
+use NeoPHP\Process\Console\IO\Formatter;
+use NeoPHP\Process\Console\IO\InputOption;
 use Throwable;
 
-class MakeMigrationCommand extends AbstractCommand
+#[AsCommand(name: 'make:migration', description: 'Generates a migration from the differences between the entities and the database')]
+class MakeMigrationCommand extends AbstractConsole
 {
-    protected string $name = 'make:migration';
-
-    protected string $description = 'Generates a migration (Migration_{hash}.php) from the differences between the entities and the database. Options: --empty, --description="..."';
-
     public function __construct(protected OrmInterface $orm, protected SchemaTool $schemaTool, protected Migrator $migrator, protected MigrationGenerator $generator)
     {
     }
 
-    public function execute(Input $input, Output $output): int
+    protected function configure(InputInterface $input, OutputInterface $output): void
     {
-        $empty = (bool) $input->getOption('empty', false);
-        $description = $input->getOption('description');
-        $description = is_string($description) ? $description : '';
+        $input->addOption('empty', null, InputOption::VALUE_NONE, 'Generate an empty migration to write by hand');
+        $input->addOption('description', 'd', InputOption::VALUE_REQUIRED, 'The description of the migration', '');
+        $this->setHelp('The file is written in migrations/Migration_{hash}.php. The pending migrations must be executed first.');
+        $this->addExample('make:migration');
+        $this->addExample('make:migration --description="Add the post table"');
+        $this->addExample('make:migration --empty');
+    }
+
+    protected function do(InputInterface $input, OutputInterface $output): int
+    {
+        $empty = (bool) $input->getOption('empty');
+        $description = (string) $input->getOption('description');
 
         try {
             $pending = $this->migrator->getPending();
 
             if ($pending !== [] && !$empty) {
-                $output->writeln(sprintf('<error>%d migration(s) not executed yet.</error> Run <info>php bin/neo migration:migrate</info> first, then generate the new migration.', count($pending)));
+                $output->error(sprintf('%d migration(s) not executed yet.', count($pending)));
+                $output->text('Run <info>php bin/neo migration:migrate</info> first, then generate the new migration.');
 
                 return self::FAILURE;
             }
@@ -41,25 +51,26 @@ class MakeMigrationCommand extends AbstractCommand
             [$up, $down] = $empty ? [[], []] : $this->schemaTool->getMigrationSql();
 
             if ($up === [] && !$empty) {
-                $output->writeln('<comment>No changes detected: the database is in sync with the entities.</comment>');
+                $output->note('No changes detected: the database is in sync with the entities.');
 
                 return self::SUCCESS;
             }
 
             $file = $this->generator->generate($up, $down, $empty ? null : $this->orm->getPlatform()->getName(), $description);
         } catch (Throwable $exception) {
-            $output->writeln(sprintf('<error>%s</error>', $exception->getMessage()));
+            $output->error($exception->getMessage());
 
             return self::FAILURE;
         }
 
-        $output->writeln(sprintf('<success>created</success>  %s', $file));
+        $output->writeln(sprintf('  <success>created</success>  %s', $file));
 
-        if (!$empty) {
-            $output->writeln(sprintf('%d SQL statement(s) in up(), %d in down().', count($up), count($down)));
+        foreach ($up as $sql) {
+            $output->writeln('      <muted>' . Formatter::escape($sql) . ';</muted>', OutputInterface::VERBOSITY_VERBOSE);
         }
 
-        $output->writeln('Review it, then run: <info>php bin/neo migration:migrate</info>');
+        $output->success($empty ? 'Empty migration created.' : sprintf('%d SQL statement(s) in up(), %d in down().', count($up), count($down)));
+        $output->text('Review it, then run: <info>php bin/neo migration:migrate</info>');
 
         return self::SUCCESS;
     }

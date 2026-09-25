@@ -7,26 +7,35 @@ namespace NeoPHP\Package\Security\Helper\Console;
 use NeoPHP\Component\Container\Contract\ContainerInterface;
 use NeoPHP\Package\Orm\Provider\OrmProvider;
 use NeoPHP\Package\Security\Maker\UserMaker;
-use NeoPHP\Process\Console\Contract\AbstractCommand;
-use NeoPHP\Process\Console\IO\Input;
-use NeoPHP\Process\Console\IO\Output;
+use NeoPHP\Process\Console\Attribute\AsCommand;
+use NeoPHP\Process\Console\Contract\AbstractConsole;
+use NeoPHP\Process\Console\Contract\InputInterface;
+use NeoPHP\Process\Console\Contract\OutputInterface;
+use NeoPHP\Process\Console\IO\InputArgument;
+use NeoPHP\Process\Console\IO\InputOption;
 use Throwable;
 
-class MakeUserCommand extends AbstractCommand
+#[AsCommand(name: 'make:user', description: 'Generates a User entity and its repository')]
+class MakeUserCommand extends AbstractConsole
 {
-    protected string $name = 'make:user';
-
-    protected string $description = 'Generates a User entity and its repository. Usage: make:user [User] [--property=email] [--force]';
-
     public function __construct(protected ContainerInterface $container)
     {
     }
 
-    public function execute(Input $input, Output $output): int
+    protected function configure(InputInterface $input, OutputInterface $output): void
     {
-        $name = $input->getArgument(0, 'User') ?? 'User';
-        $property = $input->getOption('property', 'email');
-        $property = is_string($property) && $property !== '' ? $property : 'email';
+        $input->addArgument('name', InputArgument::OPTIONAL, 'The entity name', 'User');
+        $input->addOption('property', 'p', InputOption::VALUE_REQUIRED, 'The property used as identifier', 'email');
+        $this->addExample('make:user');
+        $this->addExample('make:user Admin --property=username');
+        $this->addExample('make:user --force');
+    }
+
+    protected function do(InputInterface $input, OutputInterface $output): int
+    {
+        $name = (string) $input->getArgument('name');
+        $property = (string) $input->getOption('property');
+        $property = $property !== '' ? $property : 'email';
         $root = (string) $this->container->get('kernel.root_path');
         $orm = $this->container->has(OrmProvider::CONFIG_ID) ? $this->container->get(OrmProvider::CONFIG_ID) : [];
         $maker = new UserMaker(
@@ -37,25 +46,29 @@ class MakeUserCommand extends AbstractCommand
         );
 
         try {
-            [$class, $file, , $repositoryFile] = $maker->make($name, $property, (bool) $input->getOption('force', false));
+            [$class, $file, , $repositoryFile] = $maker->make($name, $property, (bool) $input->getOption('force'));
         } catch (Throwable $exception) {
-            $output->writeln(sprintf('<error>%s</error>', $exception->getMessage()));
+            $output->error($exception->getMessage());
 
             return self::FAILURE;
         }
 
-        $output->writeln(sprintf('<success>created</success>  %s', $file));
-        $output->writeln(sprintf('<success>created</success>  %s', $repositoryFile));
-        $output->writeln('');
-        $output->writeln('Next steps:');
-        $output->writeln('  1. Create the table: <info>php bin/neo make:migration</info> then <info>php bin/neo migration:migrate</info>');
-        $output->writeln('  2. Use it in <info>config/packages/security.yaml</info>:');
-        $output->writeln('       providers:');
-        $output->writeln('         users:');
-        $output->writeln('           entity:');
-        $output->writeln(sprintf('             class: %s', $class));
-        $output->writeln(sprintf('             property: %s', $property));
-        $output->writeln('  3. Hash a password: <info>php bin/neo security:hash-password secret</info>');
+        $output->writeln(sprintf('  <success>created</success>  %s', $file));
+        $output->writeln(sprintf('  <success>created</success>  %s', $repositoryFile));
+        $output->success(sprintf('User entity %s created.', $class));
+        $output->section('Next steps');
+        $output->listing([
+            'Create the table: <info>php bin/neo make:migration</info> then <info>php bin/neo migration:migrate</info>',
+            implode("\n", [
+                'Use it in <info>config/packages/security.yaml</info>:',
+                '  <comment>providers:</comment>',
+                '  <comment>  users:</comment>',
+                '  <comment>    entity:</comment>',
+                sprintf('  <comment>      class: %s</comment>', $class),
+                sprintf('  <comment>      property: %s</comment>', $property),
+            ]),
+            'Hash a password: <info>php bin/neo security:hash-password</info>',
+        ]);
 
         return self::SUCCESS;
     }
