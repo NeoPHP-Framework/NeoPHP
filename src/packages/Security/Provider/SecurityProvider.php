@@ -9,7 +9,7 @@ use NeoPHP\Component\Container\Contract\AbstractProvider;
 use NeoPHP\Component\Container\Contract\ContainerInterface;
 use NeoPHP\Component\Csrf\Contract\CsrfInterface;
 use NeoPHP\Component\Kernel\Cache\ResourceCache;
-use NeoPHP\Package\Security\Authentication\AuthenticationManager;
+use NeoPHP\Package\Security\Authenticator\AuthenticationManager;
 use NeoPHP\Package\Security\Authorization\AccessDecisionManager;
 use NeoPHP\Package\Security\Authorization\AccessMap;
 use NeoPHP\Package\Security\Authorization\RoleHierarchy;

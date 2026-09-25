@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace NeoPHP\Package\Security\RememberMe;
 
 use NeoPHP\Component\Http\Request\Request;
-use NeoPHP\Package\Security\Authentication\Passport;
+use NeoPHP\Package\Security\Authenticator\Passport;
 use NeoPHP\Package\Security\Contract\PasswordAuthenticatedUserInterface;
 use NeoPHP\Package\Security\Contract\UserInterface;
 use NeoPHP\Package\Security\Exception\SecurityException;
