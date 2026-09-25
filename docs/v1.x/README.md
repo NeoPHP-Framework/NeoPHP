@@ -17,6 +17,7 @@ NeoPHP v1.x is the base of the framework. It has no dependency other than PHP 8.
 - a validator with constraints usable as attributes (`#[Assert\NotBlank]`) or objects (`new NotBlank()`)
 - a database layer on top of PDO (MySQL / MariaDB, PostgreSQL, SQLite), configured in `config/framework/database.yaml`
 - an ORM (data mapper): entities mapped with attributes, repositories, unit of work, lazy relations, query builders, migrations generated from the entities
+- forms (`src/Form/XxxForm.php`) mapped to an entity or to an array, validated, rendered with themes (HTML or Bootstrap 5), with CSRF protection
 - a configuration loaded from `.env` files and `config/**/*.yaml`, with placeholders (`%kernel.root_path%`, `%env(APP_NAME)%`...)
 - a console (`php bin/neo`) that generates the project files
 
@@ -113,6 +114,7 @@ var/sessions/
 | `php bin/neo migration:migrate [--dry-run]` | executes the pending migrations |
 | `php bin/neo migration:rollback [--steps=1] [--dry-run]` | rolls back the last executed migrations |
 | `php bin/neo migration:status` | lists the migrations and their status |
+| `php bin/neo make:form Post [Entity] [--force]` | generates `src/Form/PostForm.php`, with the fields of the entity when given |
 
 Each feature can ship its own commands in `Feature/Helper/Console/`: they are discovered automatically, in the framework and in the application (`src/**/Helper/Console/`). A command extends `NeoPHP\Process\Console\Contract\AbstractCommand`.
 
@@ -1043,6 +1045,8 @@ For a request that expects JSON, an uncaught `ValidationFailedException` returns
 | `Collection` | `fields` (`['email' => [...]]`), `allowExtraFields`, `allowMissingFields` |
 | `Valid` | validates the nested object (or each object of an array) |
 | `Callback` | `callback`: method of the object or callable |
+| `File` | `maxSize` (`500k`, `2M`, `1Gi` or bytes), `mimeTypes` (`['application/pdf', 'image/*']`), `extensions` (`['pdf']`); validates an `UploadedFile`, a `SplFileInfo` or a path |
+| `Image` | the `File` options (`mimeTypes` defaults to `image/*`), `minWidth`, `maxWidth`, `minHeight`, `maxHeight` |
 
 Every constraint accepts `message` (or `minMessage`, `maxMessage`...) and `groups`. Messages use placeholders: `{{ value }}`, `{{ limit }}`, `{{ min }}`, `{{ max }}`, `{{ compared_value }}`, `{{ choices }}`, `{{ type }}`. Except `NotBlank`, `NotNull` and `IsNull`, constraints accept `null` and `''`: add `NotBlank` to make a value required.
 
@@ -1659,6 +1663,231 @@ class Migration_01a0d70c0b0beeb3 extends AbstractMigration
 
 Composite identifiers, inheritance mapping, readonly properties and changes of the primary key are not supported. The ORM should be cleared (`clear()`) after a failed `flush()`.
 
+## Forms
+
+A form is a class of `src/Form/` extending `NeoPHP\Component\Form\Contract\AbstractForm`. It works with an entity (or any object) or with an array.
+
+```bash
+php bin/neo make:form Post Post
+php bin/neo make:form Contact
+```
+
+`make:form Post Post` reads the mapping of the entity `App\Entity\Post` and adds a field for each column and owning relation (text, textarea, number, checkbox, date, enum, entity...). Without entity, the form works with an array.
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Form;
+
+use App\Entity\Category;
+use App\Entity\Post;
+use App\Entity\Tag;
+use App\Enum\PostStatus;
+use NeoPHP\Component\Form\Contract\AbstractForm;
+use NeoPHP\Component\Form\FormBuilder;
+use NeoPHP\Component\Form\Type\EnumType;
+use NeoPHP\Component\Form\Type\TextareaType;
+use NeoPHP\Component\Form\Type\TextType;
+use NeoPHP\Package\Orm\Helper\Form\EntityType;
+
+class PostForm extends AbstractForm
+{
+    protected ?string $entityClass = Post::class;
+
+    public function buildForm(FormBuilder $builder, array $options): void
+    {
+        $builder
+            ->add('title', TextType::class, ['label' => 'Title'])
+            ->add('content', TextareaType::class, ['required' => false, 'help' => 'Markdown is allowed.'])
+            ->add('status', EnumType::class, ['class' => PostStatus::class])
+            ->add('category', EntityType::class, ['class' => Category::class, 'choice_label' => 'name'])
+            ->add('tags', EntityType::class, ['class' => Tag::class, 'multiple' => true, 'required' => false]);
+    }
+}
+```
+
+`$entityClass` binds the form to an entity (it is the `data_class` option; `configureOptions()` can return `['data_class' => Post::class]` too). Without `$entityClass`, the form works with an array. `configureOptions()` returns the default options of the form (`method`, `csrf_protection`, `validation_groups`...).
+
+### In a controller
+
+```php
+#[Route('/posts/new', name: 'post_new', methods: ['GET', 'POST'])]
+#[Route('/posts/{id}/edit', name: 'post_edit', methods: ['GET', 'POST'])]
+public function edit(Request $request, PostRepository $posts, ?int $id = null): Response
+{
+    $post = $id === null ? new Post() : ($posts->find($id) ?? throw $this->createNotFoundException());
+    $form = $this->createForm(PostForm::class, $post);
+    $form->handleRequest($request);
+
+    if ($form->isSubmitted() && $form->isValid()) {
+        $posts->save($post, true);
+        $this->addFlash('success', 'Post saved.');
+
+        return $this->redirectToRoute('post_edit', ['id' => $post->getId()]);
+    }
+
+    return $this->render('post/edit.html.twig', ['form' => $form]);
+}
+```
+
+- `createForm(PostForm::class, $post, $options)` builds the form; `handleRequest($request)` submits it when the request has the method of the form (`POST` by default) and a value named like the form (`post`).
+- The submitted values are converted (strings to `int`, `DateTimeImmutable`, enums, entities...) and written into the entity with its setters (`setTitle()`), its `add...()` / `remove...()` methods for collections, or its properties.
+- `isValid()` checks the CSRF token, the `constraints` of the fields and the constraints of the entity (`#[Assert\NotBlank]`...). Each violation is attached to the field of its property.
+- A value that cannot be converted (`abc` in an integer field, an unknown choice) gives the error `invalid_message` on the field. An empty field written into a setter that does not accept `null` gives `This value should not be blank.`.
+- Without entity, `getData()` returns an array (`['name' => 'Bob', 'email' => ...]`); `createForm(ContactForm::class, ['name' => 'Bob'])` sets the initial values.
+- `createFormBuilder($data)->add(...)->getForm()` builds a form without class.
+- `getClickedButton()` returns the submit button used; `getErrors(true)` returns all the errors.
+
+### Field types
+
+| Type | Model value | Specific options |
+|---|---|---|
+| `TextType`, `TextareaType`, `EmailType`, `UrlType`, `TelType`, `SearchType`, `ColorType` | `string` or `null` | |
+| `PasswordType` | `string` | `always_empty` (true: never rendered back) |
+| `HiddenType` | `string` | |
+| `IntegerType` | `int` | `input` (`number` or `string`) |
+| `NumberType` | `float` | `scale`, `input` (`number` or `string` for decimals), `html5` |
+| `CheckboxType` | `bool` | `value` |
+| `ChoiceType` | the chosen value(s) | `choices` (`['Label' => value]`), `multiple`, `expanded` (radios / checkboxes), `placeholder`, `choice_label`, `choice_value`, `choice_attr` |
+| `EnumType` | enum case(s) | `class`; the label is `label()` / `getLabel()` of the enum when it exists, the case name otherwise |
+| `EntityType` (`NeoPHP\Package\Orm\Helper\Form\`) | entity or entities | `class`, `choice_label` (property or callable), `query_builder` (`fn (PostRepository $repository) => $repository->createQueryBuilder('p')->orderBy('p.title')`), `choices`, `multiple`, `expanded` |
+| `DateType`, `DateTimeType`, `TimeType` | `DateTimeImmutable` | `input` (`datetime_immutable`, `datetime`, `string`, `timestamp`), `with_seconds`, `html5` |
+| `FileType` | `UploadedFile` (or a list with `multiple`) | `multiple` |
+| `CollectionType` | array | `entry_type`, `entry_options`, `allow_add`, `allow_delete`, `delete_empty`, `prototype`, `prototype_name` |
+| `RepeatedType` | the value of both fields | `type`, `options`, `first_options`, `second_options`, `first_name`, `second_name`, `invalid_message` |
+| `SubmitType`, `ButtonType` | none (not mapped) | `isClicked()` |
+
+Options shared by every field: `label` (`false` hides it), `label_attr`, `attr`, `row_attr`, `help`, `help_attr`, `required` (HTML attribute, not a constraint), `disabled`, `mapped` (`false`: not read nor written in the data), `property_path`, `data` (forced initial value), `empty_data`, `constraints`, `invalid_message`, `trim`. Options of the root form: `data_class`, `method`, `action`, `csrf_protection`, `csrf_field_name`, `csrf_token_id`, `validation_groups`, `allow_extra_fields`, `theme`.
+
+A form can be used as a field of another form (`->add('address', AddressForm::class)`): its data is read and written in the property `address`.
+
+`FileType` fields are usually `'mapped' => false`: move the file in the controller (`$form->get('image')->getData()?->move(...)`) and store its name in the entity.
+
+`CollectionType` renders the attribute `data-prototype` (the HTML of a new entry, with `__name__` in place of the index) when `allow_add` is enabled, to add entries in JavaScript.
+
+### Custom types
+
+A type extends `NeoPHP\Component\Form\Contract\AbstractType`; it is created with the container, so its constructor is autowired.
+
+```php
+class TagsInputType extends AbstractType
+{
+    public function getParent(): ?string
+    {
+        return TextType::class;
+    }
+
+    public function configureOptions(): array
+    {
+        return ['separator' => ','];
+    }
+
+    public function transform(mixed $data, array $options): mixed
+    {
+        return implode($options['separator'], (array) $data);
+    }
+
+    public function reverseTransform(mixed $data, array $options): mixed
+    {
+        return array_values(array_filter(array_map('trim', explode($options['separator'], (string) $data))));
+    }
+}
+```
+
+| Method | Role |
+|---|---|
+| `getParent()` | parent type (`FormType` by default): its options, rendering and behaviour are inherited |
+| `configureOptions()` | options of the type and their default values; an unknown option throws an exception |
+| `buildForm()` | adds the fields |
+| `buildView()` | adds variables to the view (`$view->vars`) |
+| `transform()` / `reverseTransform()` | converts the model value to the view value and back; throw `TransformationFailedException` for an invalid value |
+| `getBlockPrefix()` | name used by the themes (`tags_input_widget`); by default, the class name without `Type` / `Form` in snake_case |
+
+### Rendering
+
+PHP templates:
+
+```php
+<?= $this->form_start($form) ?>
+<?= $this->form_errors($form) ?>
+<?= $this->form_row($form['title']) ?>
+<?= $this->form_row($form['content'], ['attr' => ['rows' => 8]]) ?>
+<button type="submit">Save</button>
+<?= $this->form_end($form) ?>
+```
+
+Twig templates:
+
+```twig
+{{ form_start(form) }}
+    {{ form_errors(form) }}
+    {{ form_row(form.title) }}
+    {{ form_label(form.tags, 'Tags') }}
+    {{ form_widget(form.tags, {attr: {class: 'tags'}}) }}
+    <button type="submit">Save</button>
+{{ form_end(form) }}
+```
+
+| Helper | Renders |
+|---|---|
+| `form(form)` | the whole form |
+| `form_start(form, vars)` | `<form>` (method, action, `enctype` when there is a file field; `_method` hidden field for `PUT`, `PATCH`, `DELETE`) |
+| `form_end(form, vars)` | the fields not rendered yet (CSRF token included) and `</form>`; `{render_rest: false}` skips them |
+| `form_row(field, vars)` | label, widget, help and errors |
+| `form_label(field, label, vars)`, `form_widget(field, vars)`, `form_errors(field)`, `form_help(field)` | one part of a field |
+| `form_rest(form)` | the fields not rendered yet |
+
+The helpers accept the form or `$form->createView()`. The variables (`attr`, `label`, `label_attr`, `row_attr`, `help`...) override the options of the field.
+
+### Themes
+
+`config/framework/form.yaml`:
+
+```yaml
+theme: default
+csrf_protection: true
+csrf_field_name: _token
+```
+
+| Theme | Markup |
+|---|---|
+| `default` | plain HTML (`<div>`, `<label>`, `<ul class="form-errors">`) |
+| `bootstrap5` | Bootstrap 5 (`mb-3`, `form-label`, `form-control`, `form-select`, `form-check`, `is-invalid`, `invalid-feedback`) |
+| a class | a class extending `NeoPHP\Component\Form\Theme\DefaultTheme` (or `Bootstrap5Theme`) |
+
+The theme of one form is set with the option `'theme' => 'bootstrap5'`. A theme renders blocks named after the types: for an `EmailType` field, the widget is rendered by `emailWidget()`, else `textWidget()`, else `formWidget()`. A custom theme overrides the methods it needs (`formRow()`, `choiceWidget()`, `checkboxRow()`...), or adds blocks for a type (`tagsInputWidget()`) or for one form (`postRow()` for the form `post`).
+
+## CSRF
+
+The CSRF component (`src/components/Csrf`) creates tokens stored in the session. Each token is masked differently every time it is rendered.
+
+- **Forms**: a hidden field `_token` is added to every form and checked by `isValid()` (error `The CSRF token is invalid. Please try to resubmit the form.`). Disable it with `'csrf_protection' => false` (API forms). The token id is the name of the form, or `csrf_token_id`.
+- **Hand-written HTML**: `csrf_token('delete-post-' ~ post.id)` / `$this->csrf_token('delete-post-' . $post->getId())` returns a token, `csrf_field('contact')` returns the hidden input. In a controller, `isCsrfTokenValid('delete-post-' . $id, $request->request->get('_token'))` checks it and `getCsrfToken('id')` returns one. Outside controllers, inject `NeoPHP\Component\Csrf\Contract\CsrfInterface`.
+- **Attribute**: `#[Csrf('delete-post-{id}')]` on a controller or a method checks the token of the `POST`, `PUT`, `PATCH` and `DELETE` requests before the controller (route middleware), and throws an `InvalidCsrfTokenException` (HTTP 403) when it is missing or invalid. `{id}` is replaced by the route parameter. The token is read from the header `X-CSRF-TOKEN` (for AJAX requests), then from the field `_token`.
+
+```php
+#[Route('/posts/{id}/delete', name: 'post_delete', methods: ['POST'])]
+#[Csrf('delete-post-{id}')]
+public function delete(Post $post): Response
+```
+
+| `#[Csrf]` option | Default |
+|---|---|
+| `id` | required; `{parameter}` placeholders are replaced by the route parameters |
+| `field` | `_token` |
+| `header` | `X-CSRF-TOKEN` |
+| `methods` | `['POST', 'PUT', 'PATCH', 'DELETE']` |
+
+`config/framework/csrf.yaml` (optional):
+
+```yaml
+field_name: _token
+header_name: X-CSRF-TOKEN
+session_key: _csrf
+```
+
 ## Session, cookies and flash messages
 
 They are configured in `config/framework/app.yaml`:
@@ -1962,10 +2191,12 @@ src/
 │   ├── Container      dependency injection container, autowiring, #[Autowire], #[Inject], providers
 │   ├── Controller     controller resolution and AbstractController (made of traits)
 │   ├── Cookie         cookies read from the request, queued, signed
+│   ├── Csrf           CSRF tokens, #[Csrf] attribute
 │   ├── Database       PDO connections (MySQL, PostgreSQL, SQLite), queries, transactions
 │   ├── Event          event dispatcher, listeners, subscribers
 │   ├── Exception      FrameworkException and error pages
 │   ├── Flash          flash messages stored in the session
+│   ├── Form           forms, field types, data mapping, validation, themes, make:form
 │   ├── Http           Request, Response, JsonResponse, RedirectResponse
 │   ├── Kernel         boot, request lifecycle, kernel events, class discovery, cache, cache:clear
 │   ├── Logger         PSR-3 logger, channels, rotation, archives
@@ -2017,3 +2248,4 @@ Feature/Helper/Listener/FeatureListener.php     (optional)
 - Validator: constraints usable as attributes or objects, validation of objects, values and arrays, groups, `Valid`, `All`, `Collection`, `Callback`, custom constraints with autowired validators, `validate()` in controllers, 422 JSON response for `ValidationFailedException` (v1.10.0).
 - Database: PDO connections configured in `database.yaml` with a URL or parameters (MySQL / MariaDB, PostgreSQL, SQLite), several connections, query and fetch methods, `insert()` / `update()` / `delete()`, array parameters expanded, nested transactions, `getConnection()` in controllers, `database:create`, `database:drop` and `database:query` commands; `neo install` adds the missing variables to an existing `.env` (v1.11.0).
 - ORM package: entities mapped with attributes, `ManyToOne` / `OneToMany` / `OneToOne` / `ManyToMany` relations with lazy loading (generated proxies, lazy collections), cascade and orphan removal, unit of work with identity map and change tracking, repositories, entity and SQL query builders, lifecycle callbacks and events, enum / JSON / date / decimal types, `make:entity`, `make:repository`, `make:migration` (diff between the entities and the database), `migration:migrate`, `migration:rollback` and `migration:status` commands, `config/packages/orm.yaml` (v1.12.0).
+- Forms and CSRF: form classes extending `AbstractForm` mapped to an entity or an array, field types (text, number, checkbox, choice, enum, entity, date, file, collection, repeated, submit...), conversion and data mapping, validation with the field and entity constraints, `default` and `bootstrap5` themes with `form_*` view helpers, `make:form` (fields generated from an entity); CSRF component with tokens in the session, automatic token in forms, `csrf_token()` / `csrf_field()` helpers, `isCsrfTokenValid()` in controllers and `#[Csrf]` attribute; `File` and `Image` constraints (v1.13.0).
