@@ -1,0 +1,3 @@
+theme: default
+csrf_protection: true
+csrf_field_name: _token
