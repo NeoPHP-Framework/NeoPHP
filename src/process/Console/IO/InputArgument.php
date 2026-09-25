@@ -19,6 +19,7 @@ class InputArgument
         protected int $mode = self::OPTIONAL,
         protected string $description = '',
         protected mixed $default = null,
+        protected ?string $question = null,
     ) {
         if ($name === '' || preg_match('/^[A-Za-z][A-Za-z0-9_-]*$/', $name) !== 1) {
             throw new ConsoleException('The argument name "{name}" is not valid.', 0, null, ['name' => $name]);
@@ -60,5 +61,10 @@ class InputArgument
     public function getDefault(): mixed
     {
         return $this->isArray() ? ($this->default ?? []) : $this->default;
+    }
+
+    public function getQuestion(): ?string
+    {
+        return $this->question;
     }
 }

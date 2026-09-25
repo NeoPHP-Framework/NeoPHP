@@ -106,6 +106,26 @@ php bin/neo --version
 
 A mistyped command shows the closest names (`Did you mean this?`). Exit codes: `0` success, `1` failure, `2` invalid input (unknown command, option or missing argument).
 
+### Interactive commands
+
+A command run without its arguments asks for them:
+
+```
+$ php bin/neo make:form
+ Name of the form (e.g. Post, Contact):
+ > Post
+ Entity mapped by the form (empty for a form working with an array) (? to list):
+ > ?
+   1) Category
+   2) Post
+ Entity mapped by the form (empty for a form working with an array) (? to list):
+ > 2
+```
+
+- Every missing required argument is asked, and the arguments and options that declare a question (see below) are asked when they are not given on the command line. The value between brackets is the default answer (press <return>).
+- In a list, `?` shows the choices; answer with the number, the value, or its beginning when it is not ambiguous (`int` → `integer`).
+- `-n` (or `-q`) disables every question: the missing required arguments are then reported as errors, which keeps the commands usable in scripts.
+
 ### Global options
 
 Every command accepts:
@@ -140,7 +160,7 @@ When a command fails, the message is displayed in an error block; `-v` adds the 
 | `database:drop [-c name] [--if-exists]` (`db:drop`) | drops the database of a connection, after a confirmation (or `--force`) |
 | `database:query "SQL" [-c name]` (`db:query`) | executes a SQL query and displays the result |
 | `make:command Class [name]` | generates a console command in `src/Command/` |
-| `make:entity Post [field:type ...]` | generates an entity and its repository |
+| `make:entity [Post] [field:type ...]` | creates an entity and its repository, or adds fields to an existing entity (wizard when no field is given) |
 | `make:repository Post` | generates the repository of an entity |
 | `make:migration [--empty] [-d "..."]` | generates a migration from the differences between the entities and the database |
 | `migration:migrate [--dry-run]` (`migrate`) | executes the pending migrations |
@@ -185,13 +205,24 @@ class SendReportCommand extends AbstractConsole
 
     protected function configure(InputInterface $input, OutputInterface $output): void
     {
-        $input->addArgument('month', InputArgument::REQUIRED, 'The month (YYYY-MM)');
+        $input->addArgument('month', InputArgument::REQUIRED, 'The month (YYYY-MM)', null, 'Month of the report (YYYY-MM)');
         $input->addArgument('emails', InputArgument::OPTIONAL | InputArgument::IS_ARRAY, 'The recipients');
-        $input->addOption('format', null, InputOption::VALUE_REQUIRED, 'pdf or csv', 'pdf');
+        $input->addOption('format', null, InputOption::VALUE_REQUIRED, 'pdf or csv', 'pdf', 'Format of the report');
         $input->addOption('dry-run', null, InputOption::VALUE_NONE, 'Do not send anything');
         $this->setHelp('The report is sent to the administrators when no email is given.');
         $this->addExample('app:send-report 2026-09');
         $this->addExample('app:send-report 2026-09 alice@example.com bob@example.com --format=csv');
+    }
+
+    protected function interact(InputInterface $input, OutputInterface $output): void
+    {
+        if (!$input->isArgumentProvided('emails')) {
+            $email = $output->select('Recipient (empty for the administrators)', $this->reports->knownRecipients(), null, false);
+
+            if ($email !== null) {
+                $input->setArgument('emails', [$email]);
+            }
+        }
     }
 
     protected function do(InputInterface $input, OutputInterface $output): int
@@ -219,6 +250,7 @@ class SendReportCommand extends AbstractConsole
 - Accepted syntaxes: `--name=value`, `--name value`, `-n value`, `-nvalue`, grouped flags `-abc`, `--` ends the options.
 - Missing required arguments, unknown options and missing values are reported before `do()` runs; a command can report its own invalid input by throwing `InvalidInputException` (exit code 2, usage displayed).
 - The global options cannot be redefined; read `--force` with `$input->getOption('force')`.
+- Questions: the last parameter of `addArgument()` / `addOption()` is the question asked when the value is missing (a required argument without question is asked with its description; a flag with a question is asked with `confirm()`). `interact()` runs before them for richer questions (lists, validation, values depending on each other); `isArgumentProvided()` / `isOptionProvided()` tell whether a value was given, `setArgument()` / `setOption()` set the answer. Neither runs with `-n`.
 
 ### Output
 
@@ -230,7 +262,8 @@ class SendReportCommand extends AbstractConsole
 | `success()`, `error()`, `warning()`, `caution()`, `info()`, `note()` | message blocks |
 | `ask($question, $default, $validator)` | asks a question; the validator throws an exception to ask again, or returns the value |
 | `confirm($question, $default)` | yes / no question |
-| `choice($question, $choices, $default)` | returns the value (list) or the key (associative array) |
+| `choice($question, $choices, $default)` | shows the choices and returns the value (list) or the key (associative array) |
+| `select($question, $choices, $default, $strict, $validator)` | same answers as `choice()` without showing the list: `?` lists the choices, a number, a value or (strict) its unambiguous beginning is accepted; with `$strict = false`, any other value is returned as typed and an empty answer returns `null` |
 | `secret($question, $validator)` | hidden answer |
 | `progressStart($max)`, `progressAdvance()`, `progressFinish()`, `progressIterate($iterable)` | progress bar |
 | `isQuiet()`, `isVerbose()`, `isVeryVerbose()`, `isDebug()`, `isInteractive()`, `isDecorated()` | state |
@@ -262,8 +295,8 @@ Routes are declared in `config/routes.yaml`, with the `#[Route]` attribute on th
 
 ```yaml
 controllers:
-    resource: ../src/Controller/
-    type: attribute
+  resource: ../src/Controller/
+  type: attribute
 ```
 
 ```php
@@ -311,10 +344,10 @@ On the class, `#[Route]` is a prefix: its `path` and `name` are prepended to eve
 
 ```yaml
 admin_controllers:
-    resource: ../src/Admin/Controller/
-    type: attribute
-    prefix: /admin
-    name_prefix: admin_
+  resource: ../src/Admin/Controller/
+  type: attribute
+  prefix: /admin
+  name_prefix: admin_
 ```
 
 ### YAML
@@ -323,24 +356,24 @@ admin_controllers:
 
 ```yaml
 home:
-    path: /
-    controller: App\Controller\HomeController::index
-    methods: [GET]
+  path: /
+  controller: App\Controller\HomeController::index
+  methods: [GET]
 
 user_show:
-    path: /user/{id}
-    controller: App\Controller\UserController::show
-    requirements: { id: '\d+' }
+  path: /user/{id}
+  controller: App\Controller\UserController::show
+  requirements: { id: '\d+' }
 
 page:
-    path: /page/{slug}
-    controller: App\Controller\PageController::show
-    defaults: { slug: home }
+  path: /page/{slug}
+  controller: App\Controller\PageController::show
+  defaults: { slug: home }
 
 admin:
-    resource: routes/admin.yaml
-    prefix: /admin
-    name_prefix: admin_
+  resource: routes/admin.yaml
+  prefix: /admin
+  name_prefix: admin_
 ```
 
 | Key | Description |
@@ -1746,13 +1779,53 @@ The events are dispatched with the event dispatcher: a listener receives them li
 
 ### Generating code
 
+`make:entity` without fields starts a wizard. It creates the entity, or completes it when it already exists (the new properties and methods are added to its class, the rest of the file is kept):
+
+```
+$ php bin/neo make:entity
+ Class name of the entity to create or update (e.g. BlogPost) (? to list):
+ > Comment
+
+ New property name (press <return> to stop adding fields):
+ > content
+ Field type (enter ? to see all types) [text]:
+ >
+ Can this field be null in the database (nullable) (yes/no) [no]:
+ >
+
+ New property name (press <return> to stop adding fields):
+ > post
+ Field type (enter ? to see all types) [ManyToOne]:
+ >
+ What class should this entity be related to? [Post] (? to list):
+ >
+ Is the Comment.post property allowed to be null (nullable) (yes/no) [yes]:
+ > no
+ Do you want to add a new property to Post so that you can access/update Comment objects from it - e.g. $post->getComments() (yes/no) [yes]:
+ >
+ New field name inside Post [comments]:
+ >
+ Do you want to delete the orphaned Comment objects (orphanRemoval)? ... (yes/no) [no]:
+ > yes
+
+ New property name (press <return> to stop adding fields):
+ >
+```
+
+- **Types**: `?` lists them (`string`, `text`, `integer`, `decimal`, `boolean`, dates, `json`, `uuid`, `enum`, `relation` and the four relation types). The default type is guessed from the name: `email` → `string` 180 unique, `slug` → unique, `createdAt` → `datetime_immutable`, `publishedAt` → nullable datetime, `isActive` / `published` → `boolean`, `price` → `decimal`, `description` → `text`, `position` → `integer`, `roles` → `json`, and a name matching an entity (`category` → `Category`, `tags` → `Tag`) → a relation.
+- **Questions per type**: length for `string`, precision and scale for `decimal`, the enum (from `src/Enum`) for `enum`, unique for strings and integers, and nullable.
+- **Relations**: `relation` explains the four types with the real class names. The inverse side is proposed and written in the target entity (`Post::$comments` with `getComments()`, `addComment()` and `removeComment()`, which keep both sides in sync). `OneToMany` always adds the `ManyToOne` side in the target. Self-references (`Category::$children` / `$parent`) are supported.
+- **Checks**: an existing property or method, or a name used twice, is refused before anything is written; a refused field is not added and the wizard goes on.
+
+With fields on the command line, nothing is asked (useful in scripts), and the fields are added to the entity if it exists:
+
 ```bash
 php bin/neo make:entity Category name:string:100 posts:OneToMany:Post:category
 php bin/neo make:entity Post title:string:120 content:text? status:enum:App\\Enum\\PostStatus publishedAt:datetime_immutable? category:ManyToOne:Category tags:ManyToMany:Tag
 php bin/neo make:repository Post
 ```
 
-`make:entity` generates the entity (properties, getters, setters, `add...()` / `remove...()` for collections) and its repository. A field is `name:type`; a trailing `?` makes it nullable. Types: `string[:length]`, `text`, `integer`, `smallint`, `bigint`, `float`, `decimal[:precision[:scale]]`, `boolean`, `datetime`, `datetime_immutable`, `date`, `date_immutable`, `time`, `json`, `guid`, `enum:Class`, and the relations `ManyToOne:Target`, `OneToOne:Target`, `OneToMany:Target[:mappedBy]`, `ManyToMany:Target`. The inverse side of a relation is not generated in the target entity.
+A field is `name:type`; a trailing `?` makes it nullable. Types: `string[:length]`, `text`, `integer`, `smallint`, `bigint`, `float`, `decimal[:precision[:scale]]`, `boolean`, `datetime`, `datetime_immutable`, `date`, `date_immutable`, `time`, `json`, `guid`, `enum:Class`, and the relations `ManyToOne:Target`, `OneToOne:Target`, `OneToMany:Target[:mappedBy]`, `ManyToMany:Target`. On the command line, the inverse side is not generated. `--force` regenerates an existing entity from scratch (its repository is kept). An entity in a sub-namespace (`Blog/Post`) gets its repository in the same sub-namespace (`App\Repository\Blog\PostRepository`).
 
 ### Migrations
 
@@ -2057,40 +2130,40 @@ php bin/neo security:hash-password secret
 ```yaml
 # config/packages/security.yaml
 providers:
-    users:
-        entity:
-            class: App\Entity\User
-            property: email
+  users:
+    entity:
+      class: App\Entity\User
+      property: email
 
 password_hashers:
-    default: auto
+  default: auto
 
 firewalls:
-    assets:
-        pattern: ^/builds/
-        security: false
-    main:
-        pattern: ^/
-        provider: users
-        form_login:
-            login_path: app_login
-            enable_csrf: true
-            default_target_path: /
-        logout:
-            path: app_logout
-            target: /
-        remember_me:
-            lifetime: 604800
-        login_throttling:
-            max_attempts: 5
-            interval: 60
+  assets:
+    pattern: ^/builds/
+    security: false
+  main:
+    pattern: ^/
+    provider: users
+    form_login:
+      login_path: app_login
+      enable_csrf: true
+      default_target_path: /
+    logout:
+      path: app_logout
+      target: /
+    remember_me:
+      lifetime: 604800
+    login_throttling:
+      max_attempts: 5
+      interval: 60
 
 role_hierarchy:
-    ROLE_ADMIN: [ROLE_USER]
+  ROLE_ADMIN: [ROLE_USER]
 
 access_control:
-    - { path: ^/admin, roles: ROLE_ADMIN }
-    - { path: ^/profile, roles: IS_AUTHENTICATED }
+  - { path: ^/admin, roles: ROLE_ADMIN }
+  - { path: ^/profile, roles: IS_AUTHENTICATED }
 ```
 
 `neo install` creates a default `config/packages/security.yaml` (memory provider without users, login form on `/login`).
@@ -2300,21 +2373,21 @@ name: '%env(APP_NAME)%'
 secret: '%env(APP_SECRET)%'
 
 session:
-    name: NEOSESSID
-    lifetime: 0
-    gc_maxlifetime: 1440
-    save_path: '%kernel.root_path%/var/sessions'
+  name: NEOSESSID
+  lifetime: 0
+  gc_maxlifetime: 1440
+  save_path: '%kernel.root_path%/var/sessions'
 
 cookie:
-    lifetime: 0
-    path: /
-    domain: ~
-    secure: auto
-    httponly: true
-    samesite: Lax
+  lifetime: 0
+  path: /
+  domain: ~
+  secure: auto
+  httponly: true
+  samesite: Lax
 
 flash:
-    key: _flashes
+  key: _flashes
 ```
 
 | Option | Description |
@@ -2412,8 +2485,8 @@ dsn: '%env(MAILER_DSN)%'
 from: '%env(APP_NAME)% <noreply@example.com>'   # used when an email has no from()
 
 envelope:
-    sender: ~                                     # forces the envelope sender (MAIL FROM, bounces)
-    recipients: '%env(csv:MAILER_RECIPIENTS)%'    # redirects every email to these addresses
+  sender: ~                                     # forces the envelope sender (MAIL FROM, bounces)
+  recipients: '%env(csv:MAILER_RECIPIENTS)%'    # redirects every email to these addresses
 
 headers: {}                                     # headers added to every email, e.g. X-App: shop
 ```
@@ -2714,32 +2787,32 @@ Methods: `emergency()`, `alert()`, `critical()`, `error()`, `warning()`, `notice
 
 ```yaml
 channels:
-    app:
-        enabled: true
-        extension: log
-    framework:
-        enabled: true
-        extension: log
-        minimum_level: warning
+  app:
+    enabled: true
+    extension: log
+  framework:
+    enabled: true
+    extension: log
+    minimum_level: warning
 
 rotation:
-    enabled: true
-    max_files: 30
-    when:
-        filesize: 10M
-        every: day
+  enabled: true
+  max_files: 30
+  when:
+    filesize: 10M
+    every: day
 
 archive:
-    enabled: true
-    extension: zip
+  enabled: true
+  extension: zip
 
 settings:
-    path: '%kernel.root_path%/var/log'
-    format_message: '[%datetime%] %channel%.%type% %message% %context%'
-    date_format: 'Y-m-d H:i:s'
-    timezone: Europe/Paris
-    minimum_level: debug
-    default_channel: app
+  path: '%kernel.root_path%/var/log'
+  format_message: '[%datetime%] %channel%.%type% %message% %context%'
+  date_format: 'Y-m-d H:i:s'
+  timezone: Europe/Paris
+  minimum_level: debug
+  default_channel: app
 ```
 
 | Option | Description |
@@ -2836,3 +2909,4 @@ Feature/Helper/Listener/FeatureListener.php     (optional)
 - Debug package: `dump()` and `dd()` global functions, collapsible HTML dumps inserted in the response, colored console dumps, `dump()` view helper, dumps disabled when `APP_DEBUG` is false, exception context and stack trace arguments dumped on the error page, `debug:container` command, `config/packages/debug.yaml`; the container exposes `getDefinitions()` and `getAliases()` (v1.14.0).
 - Console: commands declared with `#[AsCommand]` and extending `AbstractConsole` (`configure()` / `do()`), arguments and options definitions with validation, global options (`--help`, `-q`, `-v`/`-vv`/`-vvv`, `--force`, `-n`, `--env`, `--ansi`/`--no-ansi`), the same help layout for every command with examples, styled output (titles, tables, message blocks), questions (`ask`, `confirm`, `choice`, `secret`), progress bar, commands grouped by namespace, abbreviations and "Did you mean" suggestions, command aliases, `make:command`, commands discovered anywhere in `src/`, `--env` read by `bin/neo`; `AbstractCommand` is removed and every command is rewritten (v1.15.0).
 - Mailer component: fluent `Email` (addresses, UTF-8 subject and names, HTML and text with a text version generated from the HTML, attachments, embedded images, priority, custom headers, protection against header injection), native SMTP transport (STARTTLS / implicit TLS, AUTH PLAIN / LOGIN / CRAM-MD5, connection reused), `file`, `log` and `null` transports configured with `MAILER_DSN`, default sender and headers, envelope redirection with `MAILER_RECIPIENTS`, `MessageEvent` / `SentMessageEvent` / `FailedMessageEvent`, `sendEmail()` in controllers, `mailer:test` and `make:email` commands, `config/framework/mailer.yaml` (v1.16.0).
+- Interactive console: missing arguments are asked, arguments and options can declare their question (`addArgument(..., $question)`), `interact()` hook, `select()` with `?` to list the choices, numbers and prefixes, `isArgumentProvided()` / `isOptionProvided()`; every `make:*` command, `mailer:test` and `database:query` ask for their values; `make:entity` wizard (fields one by one, guessed types, relations with their inverse side written in the target entity, completion of existing entities, checks before writing), sub-namespace repositories (v1.17.0).

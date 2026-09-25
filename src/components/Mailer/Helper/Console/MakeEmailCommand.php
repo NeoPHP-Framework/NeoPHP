@@ -22,7 +22,7 @@ class MakeEmailCommand extends AbstractConsole
 
     protected function configure(InputInterface $input, OutputInterface $output): void
     {
-        $input->addArgument('name', InputArgument::REQUIRED, 'The email name (the "Email" suffix is added)');
+        $input->addArgument('name', InputArgument::REQUIRED, 'The email name (the "Email" suffix is added)', null, 'Name of the email class (e.g. Welcome, Order/Shipped)');
         $this->addExample('make:email Welcome');
         $this->addExample('make:email Order/Shipped --force');
     }

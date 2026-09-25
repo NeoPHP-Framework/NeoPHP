@@ -10,9 +10,9 @@ use NeoPHP\Process\Console\IO\InputOption;
 
 interface InputInterface
 {
-    public function addArgument(string $name, int $mode = InputArgument::OPTIONAL, string $description = '', mixed $default = null): static;
+    public function addArgument(string $name, int $mode = InputArgument::OPTIONAL, string $description = '', mixed $default = null, ?string $question = null): static;
 
-    public function addOption(string $name, ?string $shortcut = null, int $mode = InputOption::VALUE_NONE, string $description = '', mixed $default = null): static;
+    public function addOption(string $name, ?string $shortcut = null, int $mode = InputOption::VALUE_NONE, string $description = '', mixed $default = null, ?string $question = null): static;
 
     public function getDefinition(): InputDefinition;
 
@@ -30,6 +30,8 @@ interface InputInterface
 
     public function hasArgument(string $name): bool;
 
+    public function isArgumentProvided(string $name): bool;
+
     public function setArgument(string $name, mixed $value): static;
 
     public function getOption(string $name): mixed;
@@ -37,6 +39,8 @@ interface InputInterface
     public function getOptions(): array;
 
     public function hasOption(string $name): bool;
+
+    public function isOptionProvided(string $name): bool;
 
     public function setOption(string $name, mixed $value): static;
 

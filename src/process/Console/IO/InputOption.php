@@ -24,6 +24,7 @@ class InputOption
         protected int $mode = self::VALUE_NONE,
         protected string $description = '',
         protected mixed $default = null,
+        protected ?string $question = null,
     ) {
         $this->name = ltrim($name, '-');
         $shortcut = $shortcut !== null ? ltrim($shortcut, '-') : null;
@@ -78,6 +79,11 @@ class InputOption
     public function isArray(): bool
     {
         return ($this->mode & self::VALUE_IS_ARRAY) === self::VALUE_IS_ARRAY;
+    }
+
+    public function getQuestion(): ?string
+    {
+        return $this->question;
     }
 
     public function getDefault(): mixed

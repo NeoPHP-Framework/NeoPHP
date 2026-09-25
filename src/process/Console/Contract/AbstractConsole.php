@@ -82,6 +82,12 @@ abstract class AbstractConsole implements CommandInterface
         }
 
         $input->bind();
+
+        if ($input->isInteractive() && $output->isInteractive()) {
+            $this->interact($input, $output);
+            $this->askMissing($input, $output);
+        }
+
         $input->validate();
 
         $code = $this->do($input, $output);
@@ -140,6 +146,56 @@ abstract class AbstractConsole implements CommandInterface
     }
 
     abstract protected function do(InputInterface $input, OutputInterface $output): int;
+
+    protected function interact(InputInterface $input, OutputInterface $output): void
+    {
+    }
+
+    protected function askMissing(InputInterface $input, OutputInterface $output): void
+    {
+        $definition = $input->getDefinition();
+
+        foreach ($definition->getArguments() as $name => $argument) {
+            if ($input->isArgumentProvided($name) || (!$argument->isRequired() && $argument->getQuestion() === null)) {
+                continue;
+            }
+
+            $question = $argument->getQuestion() ?? ucfirst($argument->getDescription() !== '' ? $argument->getDescription() : $name);
+            $default = $argument->isRequired() || $argument->isArray() || !is_scalar($argument->getDefault()) ? null : (string) $argument->getDefault();
+            $required = $argument->isRequired();
+            $answer = $output->ask($question, $default, static function (mixed $value) use ($required): ?string {
+                $value = trim((string) $value);
+
+                if ($value === '' && $required) {
+                    throw new InvalidInputException('A value is required.');
+                }
+
+                return $value === '' ? null : $value;
+            });
+
+            if ($answer !== null) {
+                $input->setArgument($name, $argument->isArray() ? [$answer] : $answer);
+            }
+        }
+
+        foreach ($definition->getOptions() as $name => $option) {
+            if ($definition->isGlobal($name) || $option->getQuestion() === null || $input->isOptionProvided($name)) {
+                continue;
+            }
+
+            if (!$option->acceptValue()) {
+                $input->setOption($name, $output->confirm($option->getQuestion(), (bool) $option->getDefault()));
+                continue;
+            }
+
+            $default = $option->getDefault();
+            $answer = $output->ask($option->getQuestion(), is_scalar($default) && !is_bool($default) ? (string) $default : null);
+
+            if (is_string($answer) && trim($answer) !== '') {
+                $input->setOption($name, $option->isArray() ? [trim($answer)] : trim($answer));
+            }
+        }
+    }
 
     protected function addExample(string $example): static
     {
