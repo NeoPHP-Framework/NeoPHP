@@ -42,8 +42,8 @@ class EntityUserProvider implements UserProviderInterface, PasswordUpgraderInter
 
     public function refreshUser(UserInterface $user): UserInterface
     {
-        if (!$this->supportsClass($user::class)) {
-            throw new SecurityException('Instances of "{class}" are not supported by the entity user provider of "{entity}".', 0, null, ['class' => $user::class, 'entity' => $this->class]);
+        if (!$this->supportsClass(UserClass::of($user))) {
+            throw new SecurityException('Instances of "{class}" are not supported by the entity user provider of "{entity}".', 0, null, ['class' => UserClass::of($user), 'entity' => $this->class]);
         }
 
         $id = $this->orm->getMetadata($user)->getIdentifierValue($user);
@@ -63,7 +63,7 @@ class EntityUserProvider implements UserProviderInterface, PasswordUpgraderInter
 
     public function upgradePassword(PasswordAuthenticatedUserInterface $user, string $hashedPassword): void
     {
-        if (!$this->supportsClass($user::class) || !method_exists($user, 'setPassword')) {
+        if (!$this->supportsClass(UserClass::of($user)) || !method_exists($user, 'setPassword')) {
             return;
         }
 

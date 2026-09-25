@@ -262,8 +262,8 @@ Routes are declared in `config/routes.yaml`, with the `#[Route]` attribute on th
 
 ```yaml
 controllers:
-  resource: ../src/Controller/
-  type: attribute
+    resource: ../src/Controller/
+    type: attribute
 ```
 
 ```php
@@ -311,10 +311,10 @@ On the class, `#[Route]` is a prefix: its `path` and `name` are prepended to eve
 
 ```yaml
 admin_controllers:
-  resource: ../src/Admin/Controller/
-  type: attribute
-  prefix: /admin
-  name_prefix: admin_
+    resource: ../src/Admin/Controller/
+    type: attribute
+    prefix: /admin
+    name_prefix: admin_
 ```
 
 ### YAML
@@ -323,24 +323,24 @@ admin_controllers:
 
 ```yaml
 home:
-  path: /
-  controller: App\Controller\HomeController::index
-  methods: [GET]
+    path: /
+    controller: App\Controller\HomeController::index
+    methods: [GET]
 
 user_show:
-  path: /user/{id}
-  controller: App\Controller\UserController::show
-  requirements: { id: '\d+' }
+    path: /user/{id}
+    controller: App\Controller\UserController::show
+    requirements: { id: '\d+' }
 
 page:
-  path: /page/{slug}
-  controller: App\Controller\PageController::show
-  defaults: { slug: home }
+    path: /page/{slug}
+    controller: App\Controller\PageController::show
+    defaults: { slug: home }
 
 admin:
-  resource: routes/admin.yaml
-  prefix: /admin
-  name_prefix: admin_
+    resource: routes/admin.yaml
+    prefix: /admin
+    name_prefix: admin_
 ```
 
 | Key | Description |
@@ -397,6 +397,9 @@ class UserController extends AbstractController
 ```
 
 Controller arguments are resolved from, in order: the `Request` (type-hint), the route parameters (cast to `int`, `float`, `bool` or `string`), the request attributes, the container (class type-hints), the default values.
+
+- A route parameter is never converted into an entity: `public function show(Post $post)` receives an empty `Post` built by the container. Use `public function show(int $id)` and `$this->getRepository(Post::class)->find($id)`.
+- `#[Autowire]` and `#[Inject]` are not read on the parameters of an action. Put them on the constructor (or on a property) of the controller, or use `$this->get('service.id')` in the action.
 
 A controller returns a `Response`. For convenience, a `string` becomes an HTML response, an `array` a JSON response and `null` a 204 response.
 
@@ -903,6 +906,8 @@ class SmtpMailer implements MailerInterface
 | `shared` | on the class only: `false` creates a new instance each time |
 
 A missing service, configuration key or environment variable throws a `ContainerException`, unless the parameter is nullable (it then receives `null`).
+
+`#[Autowire]` is read on the parameters of a constructor (services, controllers, commands, listeners...), not on the parameters of a controller action: there, only the type-hint is used (see [Controllers](#controllers)).
 
 ### #[Inject]
 
@@ -1584,7 +1589,7 @@ The type is deduced from the property type when it is not given:
 - `cascade: ['persist']` persists the new related entities, `cascade: ['remove']` removes them with the entity, `'all'` does both. Without `persist` cascade, a new entity found through a relation throws an exception on `flush()`.
 - `orphanRemoval: true` removes an entity removed from the collection (`OneToMany`) or replaced (`OneToOne`).
 - Collections (`OneToMany`, `ManyToMany`) are typed `CollectionInterface`: an `ArrayCollection` for a new entity, a lazy `PersistentCollection` loaded on first use for an entity read from the database.
-- `ManyToOne` and `OneToOne` relations are loaded lazily with a proxy (a generated subclass in `var/cache/orm/proxies`) that loads the entity on its first method call; `getId()` does not load it. A `final` class, or a class with `__get()`, is loaded immediately instead.
+- `ManyToOne` and `OneToOne` relations are loaded lazily with a proxy (a generated subclass in `var/cache/orm/proxies`) that loads the entity on its first method call; `getId()` does not load it. A `final` class, or a class with `__get()`, is loaded immediately instead. An entity is unique per request: once a proxy exists for an id, `find()` and the queries return that same (initialized) proxy, so compare classes with `instanceof`, not with `$entity::class`.
 
 ### Persisting
 
@@ -1682,7 +1687,7 @@ $posts = $orm->createQueryBuilder()
 
 | Method | Description |
 |---|---|
-| `select()` / `addSelect()` | an alias selects entities (a joined alias loads the relation in the same query), anything else is a scalar expression (`COUNT(p.id) AS total`) |
+| `select()` / `addSelect()` | an alias selects entities (a joined alias loads the relation in the same query and sets the real entities, not proxies), anything else is a scalar expression (`COUNT(p.id) AS total`) |
 | `from(Post::class, 'p')` | the root entity |
 | `join()` / `innerJoin()` / `leftJoin()` | a relation (`'p.category'`), or an entity with a condition (`Category::class, 'c', 'c.id = p.category'`); an extra condition is added with `AND` |
 | `where()` / `andWhere()` / `orWhere()`, `groupBy()`, `having()`, `orderBy()` / `addOrderBy()` | clauses; `p.category` is the foreign key column |
@@ -2008,8 +2013,18 @@ The CSRF component (`src/components/Csrf`) creates tokens stored in the session.
 ```php
 #[Route('/posts/{id}/delete', name: 'post_delete', methods: ['POST'])]
 #[Csrf('delete-post-{id}')]
-public function delete(Post $post): Response
+public function delete(int $id): Response
+{
+    $post = $this->getRepository(Post::class)->find($id) ?? throw $this->createNotFoundException();
+
+    $this->getOrm()->remove($post);
+    $this->getOrm()->flush();
+
+    return $this->redirectToRoute('post_index');
+}
 ```
+
+A route parameter is not converted into an entity: type the parameter `int $id` and load the entity with `find()` (a `Post $post` parameter would receive an empty `Post` created by the container).
 
 | `#[Csrf]` option | Default |
 |---|---|
@@ -2042,40 +2057,40 @@ php bin/neo security:hash-password secret
 ```yaml
 # config/packages/security.yaml
 providers:
-  users:
-    entity:
-      class: App\Entity\User
-      property: email
+    users:
+        entity:
+            class: App\Entity\User
+            property: email
 
 password_hashers:
-  default: auto
+    default: auto
 
 firewalls:
-  assets:
-    pattern: ^/builds/
-    security: false
-  main:
-    pattern: ^/
-    provider: users
-    form_login:
-      login_path: app_login
-      enable_csrf: true
-      default_target_path: /
-    logout:
-      path: app_logout
-      target: /
-    remember_me:
-      lifetime: 604800
-    login_throttling:
-      max_attempts: 5
-      interval: 60
+    assets:
+        pattern: ^/builds/
+        security: false
+    main:
+        pattern: ^/
+        provider: users
+        form_login:
+            login_path: app_login
+            enable_csrf: true
+            default_target_path: /
+        logout:
+            path: app_logout
+            target: /
+        remember_me:
+            lifetime: 604800
+        login_throttling:
+            max_attempts: 5
+            interval: 60
 
 role_hierarchy:
-  ROLE_ADMIN: [ROLE_USER]
+    ROLE_ADMIN: [ROLE_USER]
 
 access_control:
-  - { path: ^/admin, roles: ROLE_ADMIN }
-  - { path: ^/profile, roles: IS_AUTHENTICATED }
+    - { path: ^/admin, roles: ROLE_ADMIN }
+    - { path: ^/profile, roles: IS_AUTHENTICATED }
 ```
 
 `neo install` creates a default `config/packages/security.yaml` (memory provider without users, login form on `/login`).
@@ -2285,21 +2300,21 @@ name: '%env(APP_NAME)%'
 secret: '%env(APP_SECRET)%'
 
 session:
-  name: NEOSESSID
-  lifetime: 0
-  gc_maxlifetime: 1440
-  save_path: '%kernel.root_path%/var/sessions'
+    name: NEOSESSID
+    lifetime: 0
+    gc_maxlifetime: 1440
+    save_path: '%kernel.root_path%/var/sessions'
 
 cookie:
-  lifetime: 0
-  path: /
-  domain: ~
-  secure: auto
-  httponly: true
-  samesite: Lax
+    lifetime: 0
+    path: /
+    domain: ~
+    secure: auto
+    httponly: true
+    samesite: Lax
 
 flash:
-  key: _flashes
+    key: _flashes
 ```
 
 | Option | Description |
@@ -2397,8 +2412,8 @@ dsn: '%env(MAILER_DSN)%'
 from: '%env(APP_NAME)% <noreply@example.com>'   # used when an email has no from()
 
 envelope:
-  sender: ~                                     # forces the envelope sender (MAIL FROM, bounces)
-  recipients: '%env(csv:MAILER_RECIPIENTS)%'    # redirects every email to these addresses
+    sender: ~                                     # forces the envelope sender (MAIL FROM, bounces)
+    recipients: '%env(csv:MAILER_RECIPIENTS)%'    # redirects every email to these addresses
 
 headers: {}                                     # headers added to every email, e.g. X-App: shop
 ```
@@ -2699,32 +2714,32 @@ Methods: `emergency()`, `alert()`, `critical()`, `error()`, `warning()`, `notice
 
 ```yaml
 channels:
-  app:
-    enabled: true
-    extension: log
-  framework:
-    enabled: true
-    extension: log
-    minimum_level: warning
+    app:
+        enabled: true
+        extension: log
+    framework:
+        enabled: true
+        extension: log
+        minimum_level: warning
 
 rotation:
-  enabled: true
-  max_files: 30
-  when:
-    filesize: 10M
-    every: day
+    enabled: true
+    max_files: 30
+    when:
+        filesize: 10M
+        every: day
 
 archive:
-  enabled: true
-  extension: zip
+    enabled: true
+    extension: zip
 
 settings:
-  path: '%kernel.root_path%/var/log'
-  format_message: '[%datetime%] %channel%.%type% %message% %context%'
-  date_format: 'Y-m-d H:i:s'
-  timezone: Europe/Paris
-  minimum_level: debug
-  default_channel: app
+    path: '%kernel.root_path%/var/log'
+    format_message: '[%datetime%] %channel%.%type% %message% %context%'
+    date_format: 'Y-m-d H:i:s'
+    timezone: Europe/Paris
+    minimum_level: debug
+    default_channel: app
 ```
 
 | Option | Description |
