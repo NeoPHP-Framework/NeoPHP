@@ -7,7 +7,7 @@ namespace NeoPHP\Package\Security\Authenticator;
 use NeoPHP\Component\Http\Request\Request;
 use NeoPHP\Component\Http\Response\JsonResponse;
 use NeoPHP\Component\Http\Response\Response;
-use NeoPHP\Package\Security\Authentication\Passport;
+use NeoPHP\Package\Security\Authenticator\Passport;
 use NeoPHP\Package\Security\Contract\AbstractAuthenticator;
 use NeoPHP\Package\Security\Contract\EntryPointInterface;
 use NeoPHP\Package\Security\Contract\SecurityInterface;
