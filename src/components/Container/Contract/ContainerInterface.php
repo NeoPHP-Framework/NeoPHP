@@ -29,4 +29,8 @@ interface ContainerInterface
     public function inject(object $object): object;
 
     public function call(callable|array|string $callable, array $parameters = []): mixed;
+
+    public function getDefinitions(): array;
+
+    public function getAliases(): array;
 }

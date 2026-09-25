@@ -13,7 +13,8 @@
         "database",
         "orm",
         "form",
-        "security"
+        "security",
+        "debug"
     ],
     "require": {
         "php": ">=8.2"
@@ -35,7 +36,10 @@
             "NeoPHP\\Component\\": "src/components/",
             "NeoPHP\\Package\\": "src/packages/",
             "NeoPHP\\Process\\": "src/process/"
-        }
+        },
+        "files": [
+            "src/packages/Debug/Resources/functions.php"
+        ]
     },
     "bin": [
         "bin/neo"

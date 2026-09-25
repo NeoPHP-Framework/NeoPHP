@@ -1,0 +1,5 @@
+enabled: '%kernel.debug%'
+max_depth: 10
+max_items: 250
+max_string: 1000
+expand_depth: 1
