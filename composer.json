@@ -40,7 +40,7 @@
             "NeoPHP\\Process\\": "src/process/"
         },
         "files": [
-            "src/packages/Debug/Resources/functions.php"
+            "src/packages/Debug/Resources/Functions.php"
         ]
     },
     "bin": [
