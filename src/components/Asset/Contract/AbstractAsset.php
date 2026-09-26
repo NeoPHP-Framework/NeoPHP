@@ -36,6 +36,8 @@ abstract class AbstractAsset implements AssetInterface
 
     protected array $compiling = [];
 
+    protected array $sourceFiles = [];
+
     public function url(string $path): string
     {
         if ($this->isExternal($path)) {
@@ -112,6 +114,29 @@ abstract class AbstractAsset implements AssetInterface
         return $this;
     }
 
+    public function setSourceFile(string $path, ?string $file): static
+    {
+        $path = $this->normalize($path);
+
+        if ($file === null) {
+            unset($this->sourceFiles[$path]);
+        } else {
+            $this->sourceFiles[$path] = $file;
+        }
+
+        unset($this->resolved[$path]);
+
+        return $this;
+    }
+
+    public function getSourceFile(string $path): string
+    {
+        $path = $this->normalize($path);
+        $file = $this->sourceFiles[$path] ?? null;
+
+        return $file !== null && is_file($file) ? $file : $this->sourcePath . '/' . $path;
+    }
+
     public function getSourcePath(): string
     {
         return $this->sourcePath;
@@ -146,7 +171,7 @@ abstract class AbstractAsset implements AssetInterface
 
     protected function build(string $path): string
     {
-        $source = $this->sourcePath . '/' . $path;
+        $source = $this->getSourceFile($path);
 
         if (!is_file($source)) {
             throw new AssetException('The asset "{path}" does not exist in "{directory}".', 0, null, [
