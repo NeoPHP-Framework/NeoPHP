@@ -12,9 +12,9 @@ trait RoutingController
 {
     abstract protected function get(string $id): mixed;
 
-    protected function generateUrl(string $route, array $parameters = []): string
+    protected function generateUrl(string $route, array $parameters = [], bool $absolute = false): string
     {
-        return $this->get(RoutingInterface::class)->generate($route, $parameters);
+        return $this->get(RoutingInterface::class)->generate($route, $parameters, $absolute);
     }
 
     protected function redirectToRoute(string $route, array $parameters = [], int $status = 302): RedirectResponse

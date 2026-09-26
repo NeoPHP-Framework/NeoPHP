@@ -26,7 +26,7 @@ class MakeMigrationCommand extends AbstractConsole
     protected function configure(InputInterface $input, OutputInterface $output): void
     {
         $input->addOption('empty', null, InputOption::VALUE_NONE, 'Generate an empty migration to write by hand');
-        $input->addOption('description', 'd', InputOption::VALUE_REQUIRED, 'The description of the migration', '', 'Description of the migration (optional)');
+        $input->addOption('description', 'd', InputOption::VALUE_REQUIRED, 'The description of the migration (asked when there are changes)', '');
         $this->setHelp('The file is written in migrations/Migration_{hash}.php. The pending migrations must be executed first.');
         $this->addExample('make:migration');
         $this->addExample('make:migration --description="Add the post table"');
@@ -54,6 +54,10 @@ class MakeMigrationCommand extends AbstractConsole
                 $output->note('No changes detected: the database is in sync with the entities.');
 
                 return self::SUCCESS;
+            }
+
+            if ($description === '' && !$input->isOptionProvided('description')) {
+                $description = trim((string) $output->ask('Description of the migration (optional, press <return> to skip)', ''));
             }
 
             $file = $this->generator->generate($up, $down, $empty ? null : $this->orm->getPlatform()->getName(), $description);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NeoPHP\Component\Routing\Contract;
 
+use Closure;
 use NeoPHP\Component\Routing\Route\Route;
 use NeoPHP\Component\Routing\Route\RouteCollection;
 use NeoPHP\Component\Routing\Route\RouteMatch;
@@ -12,7 +13,11 @@ interface RoutingInterface
 {
     public function match(string $method, string $path): RouteMatch;
 
-    public function generate(string $name, array $parameters = []): string;
+    public function generate(string $name, array $parameters = [], bool $absolute = false): string;
+
+    public function setBaseUrl(Closure|string|null $baseUrl): static;
+
+    public function getBaseUrl(): string;
 
     public function add(Route $route): static;
 

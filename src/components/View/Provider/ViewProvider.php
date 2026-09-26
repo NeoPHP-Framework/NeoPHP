@@ -52,7 +52,7 @@ class ViewProvider extends AbstractProvider
                 $view->addPath((string) $path, (string) $namespace);
             }
 
-            foreach (self::helpers($rootPath, $config) as $class) {
+            foreach (self::helpers($rootPath, $config, $debug) as $class) {
                 $helper = $container->get($class);
 
                 if (!$helper instanceof ViewHelperInterface) {
@@ -71,9 +71,9 @@ class ViewProvider extends AbstractProvider
         $container->alias(ViewManager::class, ViewInterface::class);
     }
 
-    protected static function helpers(string $rootPath, array $config): array
+    protected static function helpers(string $rootPath, array $config, bool $debug = false): array
     {
-        $discovery = new HelperDiscovery();
+        $discovery = new HelperDiscovery([], $debug);
         $frameworkPath = dirname(__DIR__, 3);
 
         foreach (self::FRAMEWORK_SOURCES as $directory => $namespace) {
