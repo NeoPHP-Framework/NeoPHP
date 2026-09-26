@@ -1,8 +1,11 @@
 <?php
 
+declare(strict_types=1);
+
 namespace NeoPHP\Package\Markdown\Contract;
 
 use NeoPHP\Package\Markdown\Document\MarkdownDocument;
+use NeoPHP\Package\Markdown\MarkdownConversion;
 
 interface MarkdownParserInterface
 {
