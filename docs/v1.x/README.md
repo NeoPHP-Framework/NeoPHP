@@ -92,7 +92,7 @@ var/log/
 var/sessions/
 ```
 
-`neo install` also writes a random `APP_SECRET` in `.env`.
+`neo install` also writes a random `APP_SECRET` in `.env`, and `APP_URL` (base URL of the absolute URLs generated in the console).
 
 ## Console
 
@@ -168,7 +168,7 @@ When a command fails, the message is displayed in an error block; `-v` adds the 
 | `migration:status` | lists the migrations and their status |
 | `make:form Post [Entity]` | generates `src/Form/PostForm.php`, with the fields of the entity when given |
 | `make:user [User] [-p email]` | generates a user entity and its repository |
-| `make:auth [SecurityController] [--twig]` | generates a login controller and its template |
+| `make:auth [SecurityController] [--twig]` | generates a login controller and its template (and the `base.php` / `base.html.twig` layout when it is missing) |
 | `make:voter Post` | generates `src/Security/Voter/PostVoter.php` |
 | `security:hash-password [password] [UserClass]` | hashes a password (asked without echo when omitted) |
 | `mailer:test email [--dsn=...]` | sends a test email (`-v` shows the SMTP dialogue) |
@@ -445,7 +445,7 @@ A controller returns a `Response`. For convenience, a `string` becomes an HTML r
 | `json($data, $status, $headers)` | `JsonResponse` |
 | `redirect($url, $status)` | `RedirectResponse` |
 | `redirectToRoute($route, $parameters, $status)` | `RedirectResponse` |
-| `generateUrl($route, $parameters)` | `string` |
+| `generateUrl($route, $parameters, $absolute)` | `string` (`$absolute = true`: `https://host/path`, see [Absolute URLs](#absolute-urls)) |
 | `createNotFoundException($message, $context)` | `NotFoundHttpException` (404) |
 | `createAccessDeniedException($message, $context)` | `AccessDeniedHttpException` (403) |
 | `get($id)` / `has($id)` | container access |
@@ -514,6 +514,25 @@ class ApiController implements ControllerInterface
 
 An application trait follows the same rule: it declares `abstract protected function get(string $id): mixed;` and uses `$this->get()` to reach its services.
 
+### Absolute URLs
+
+`path()` generates a path (`/post/hello`). For links written outside of the page (emails, feeds, API responses, console output), generate an absolute URL:
+
+```php
+$this->generateUrl('post_show', ['slug' => $post->getSlug()], true);  // controller
+$routing->generate('post_show', ['slug' => 'hello'], true);           // RoutingInterface service
+```
+
+```twig
+<a href="{{ url('post_show', {slug: post.slug}) }}">Read</a>
+```
+
+```php
+<a href="<?= $this->e($this->url('post_show', ['slug' => $post->getSlug()])) ?>">Read</a>
+```
+
+The base URL is the scheme and host of the current request. Outside of an HTTP request (console commands, emails sent from the console), it is the `url` option of `config/framework/app.yaml` (`APP_URL` in `.env`, created by `neo install`); without it, an exception explains what to configure. `RoutingInterface::setBaseUrl()` replaces the base URL (a string or a closure).
+
 ## HTTP
 
 `Request`
@@ -571,6 +590,7 @@ Inside a PHP template, `$this` gives access to:
 | `$this->e($value)` | escapes a value for HTML |
 | `$this->filter('name', $value, ...)` | applies a view filter |
 | `$this->path('route', [...])` | generates the URL of a route |
+| `$this->url('route', [...])` | generates the absolute URL of a route (`https://host/path`) |
 | `$this->asset('css/app.css')` | URL of a compiled asset (see [Assets](#assets)) |
 | `$this->config('framework.app.name')` | reads a configuration value |
 | `$this->flashes('success')` | reads and removes flash messages (see [Flash messages](#flash-messages)) |
@@ -652,11 +672,12 @@ Each feature ships its own helpers in `Feature/Helper/View/FeatureViewHelper.php
 | `Cookie/Helper/View/CookieViewHelper.php` | `cookie()` |
 | `Flash/Helper/View/FlashesViewHelper.php` | `flashes()` |
 | `Routing/Helper/View/PathViewHelper.php` | `path()` |
+| `Routing/Helper/View/UrlViewHelper.php` | `url()` |
 | `Session/Helper/View/SessionViewHelper.php` | `session()` |
 | `Security/Helper/View/*ViewHelper.php` (package) | `app_user()`, `is_granted()`, `logout_path()`, `last_username()`, `last_authentication_error()` |
 | `Debug/Helper/View/DumpViewHelper.php` (package) | `dump()` |
 
-The View component contains no helper: it discovers every `Helper/View/` directory of the framework and of the application (`src/**/Helper/View/`). Dependencies are autowired. An application helper with the same name as a framework helper replaces it.
+The View component contains no helper: it discovers every `Helper/View/` directory of the framework and of the application (`src/**/Helper/View/`). Dependencies are autowired. An application helper with the same name as a framework helper replaces it. The file name must match the class (PSR-4): in debug, a helper file that declares another class (e.g. `MardownViewHelper.php` containing `MarkdownViewHelper`) throws an error naming the file; in production it is ignored.
 
 `src/Shop/Helper/View/PriceViewHelper.php`
 
@@ -1836,7 +1857,7 @@ php bin/neo migration:status
 php bin/neo migration:rollback
 ```
 
-`make:migration` compares the entities to the database (tables, columns, indexes, foreign keys) and writes `migrations/Migration_{hash}.php` with the SQL of the database in use. The hash starts with the creation time, so migrations run in the order they were generated.
+`make:migration` compares the entities to the database (tables, columns, indexes, foreign keys) and writes `migrations/Migration_{hash}.php` with the SQL of the database in use. The hash starts with the creation time, so migrations run in the order they were generated. The optional description is asked only when there are changes (press Enter to skip), unless `--description` is given.
 
 ```php
 <?php
@@ -2123,7 +2144,7 @@ The Security package (`src/packages/Security`) authenticates the users (login fo
 ```bash
 php bin/neo make:user                  # src/Entity/User.php + src/Repository/UserRepository.php
 php bin/neo make:migration && php bin/neo migration:migrate
-php bin/neo make:auth                  # src/Controller/SecurityController.php + templates/security/login.php (--twig for Twig)
+php bin/neo make:auth                  # src/Controller/SecurityController.php + templates/security/login.php (--twig for Twig; the base layout is created when missing)
 php bin/neo security:hash-password secret
 ```
 
@@ -2371,6 +2392,7 @@ They are configured in `config/framework/app.yaml`:
 ```yaml
 name: '%env(APP_NAME)%'
 secret: '%env(APP_SECRET)%'
+url: '%env(APP_URL)%'
 
 session:
   name: NEOSESSID
@@ -2393,6 +2415,7 @@ flash:
 | Option | Description |
 |---|---|
 | `secret` | key used to sign cookies (`APP_SECRET`, generated by `neo install`) |
+| `url` | base URL of the absolute URLs generated outside of an HTTP request (`APP_URL`), see [Absolute URLs](#absolute-urls) |
 | `session.name` | name of the session cookie |
 | `session.lifetime` | lifetime of the session cookie in seconds (`0` = until the browser is closed) |
 | `session.gc_maxlifetime` | seconds of inactivity after which the session data can be deleted |
@@ -2705,6 +2728,7 @@ DATABASE_URL="mysql://${DB_USER}@localhost/app"
 | `APP_ENV` | `dev` | environment name |
 | `APP_DEBUG` | `true` unless `APP_ENV=prod` | shows the detailed error page |
 | `APP_SECRET` | none | key used to sign cookies |
+| `APP_URL` | none | base URL of the absolute URLs generated in the console (`framework.app.url`) |
 | `DATABASE_URL` | `sqlite:///%kernel.root_path%/var/data.db` | URL of the default database connection |
 
 `php bin/neo install` creates `.env`; when `.env` already exists, it adds the variables that are missing (with their comments) and keeps the others.
@@ -2909,4 +2933,5 @@ Feature/Helper/Listener/FeatureListener.php     (optional)
 - Debug package: `dump()` and `dd()` global functions, collapsible HTML dumps inserted in the response, colored console dumps, `dump()` view helper, dumps disabled when `APP_DEBUG` is false, exception context and stack trace arguments dumped on the error page, `debug:container` command, `config/packages/debug.yaml`; the container exposes `getDefinitions()` and `getAliases()` (v1.14.0).
 - Console: commands declared with `#[AsCommand]` and extending `AbstractConsole` (`configure()` / `do()`), arguments and options definitions with validation, global options (`--help`, `-q`, `-v`/`-vv`/`-vvv`, `--force`, `-n`, `--env`, `--ansi`/`--no-ansi`), the same help layout for every command with examples, styled output (titles, tables, message blocks), questions (`ask`, `confirm`, `choice`, `secret`), progress bar, commands grouped by namespace, abbreviations and "Did you mean" suggestions, command aliases, `make:command`, commands discovered anywhere in `src/`, `--env` read by `bin/neo`; `AbstractCommand` is removed and every command is rewritten (v1.15.0).
 - Mailer component: fluent `Email` (addresses, UTF-8 subject and names, HTML and text with a text version generated from the HTML, attachments, embedded images, priority, custom headers, protection against header injection), native SMTP transport (STARTTLS / implicit TLS, AUTH PLAIN / LOGIN / CRAM-MD5, connection reused), `file`, `log` and `null` transports configured with `MAILER_DSN`, default sender and headers, envelope redirection with `MAILER_RECIPIENTS`, `MessageEvent` / `SentMessageEvent` / `FailedMessageEvent`, `sendEmail()` in controllers, `mailer:test` and `make:email` commands, `config/framework/mailer.yaml` (v1.16.0).
+- Bugfix: absolute URLs (`generateUrl(..., true)`, `url()` view helper, `framework.app.url` / `APP_URL` for the console); `make:auth` creates the missing base layout; `make:migration` asks the optional description only when there are changes; in debug, a view helper file whose name does not match its class throws an error.
 - Interactive console: missing arguments are asked, arguments and options can declare their question (`addArgument(..., $question)`), `interact()` hook, `select()` with `?` to list the choices, numbers and prefixes, `isArgumentProvided()` / `isOptionProvided()`; every `make:*` command, `mailer:test` and `database:query` ask for their values; `make:entity` wizard (fields one by one, guessed types, relations with their inverse side written in the target entity, completion of existing entities, checks before writing), sub-namespace repositories (v1.17.0).
