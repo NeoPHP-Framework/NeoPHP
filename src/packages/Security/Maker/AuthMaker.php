@@ -21,6 +21,7 @@ class AuthMaker extends AbstractMaker
         [$class, $file] = $this->resolve($name, 'Controller');
         $template = 'security/login.' . ($twig ? 'html.twig' : 'php');
         $templateFile = rtrim($this->templatesPath, '/\\') . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $template);
+        $layoutFile = rtrim($this->templatesPath, '/\\') . DIRECTORY_SEPARATOR . ($twig ? 'base.html.twig' : 'base.php');
 
         if (!$force) {
             foreach ([$file, $templateFile] as $existing) {
@@ -53,8 +54,56 @@ class AuthMaker extends AbstractMaker
 
         $this->write($file, $controller, $force);
         $this->write($templateFile, $twig ? self::twigTemplate() : self::phpTemplate(), $force);
+        $layout = null;
 
-        return [$class, $file, $templateFile];
+        if (!is_file($layoutFile)) {
+            $this->write($layoutFile, $twig ? self::twigLayout() : self::phpLayout(), false);
+            $layout = $layoutFile;
+        }
+
+        return [$class, $file, $templateFile, $layout];
+    }
+
+    protected static function phpLayout(): string
+    {
+        return <<<'PHP'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title><?= $this->e($title ?? $this->config('framework.app.name', 'NeoPHP')) ?></title>
+    <link rel="stylesheet" href="<?= $this->e($this->asset('css/app.css')) ?>">
+</head>
+<body>
+    <main>
+        <?= $this->section('content') ?>
+    </main>
+</body>
+</html>
+
+PHP;
+    }
+
+    protected static function twigLayout(): string
+    {
+        return <<<'TWIG'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}{{ config('framework.app.name', 'NeoPHP') }}{% endblock %}</title>
+    <link rel="stylesheet" href="{{ asset('css/app.css') }}">
+</head>
+<body>
+    <main>
+        {% block body %}{% endblock %}
+    </main>
+</body>
+</html>
+
+TWIG;
     }
 
     protected static function phpTemplate(): string

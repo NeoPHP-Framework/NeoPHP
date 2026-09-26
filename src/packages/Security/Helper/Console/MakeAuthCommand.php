@@ -37,7 +37,7 @@ class MakeAuthCommand extends AbstractConsole
         $maker = new AuthMaker($root . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Controller', 'App\\Controller', $templates);
 
         try {
-            [, $file, $template] = $maker->make((string) $input->getArgument('name'), (bool) $input->getOption('twig'), (bool) $input->getOption('force'));
+            [, $file, $template, $layout] = $maker->make((string) $input->getArgument('name'), (bool) $input->getOption('twig'), (bool) $input->getOption('force'));
         } catch (Throwable $exception) {
             $output->error($exception->getMessage());
 
@@ -46,6 +46,11 @@ class MakeAuthCommand extends AbstractConsole
 
         $output->writeln(sprintf('  <success>created</success>  %s', $file));
         $output->writeln(sprintf('  <success>created</success>  %s', $template));
+
+        if ($layout !== null) {
+            $output->writeln(sprintf('  <success>created</success>  %s <muted>(layout extended by the login template)</muted>', $layout));
+        }
+
         $output->success('Login controller created.');
         $output->text([
             'Enable the login form in <info>config/packages/security.yaml</info>:',
