@@ -3,6 +3,7 @@ environment: '%kernel.environment%'
 debug: '%kernel.debug%'
 root_path: '%kernel.root_path%'
 secret: '%env(APP_SECRET)%'
+url: '%env(APP_URL)%'
 
 session:
   name: NEOSESSID

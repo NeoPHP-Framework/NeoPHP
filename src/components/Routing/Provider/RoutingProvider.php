@@ -7,6 +7,7 @@ namespace NeoPHP\Component\Routing\Provider;
 use NeoPHP\Component\Config\Contract\ConfigInterface;
 use NeoPHP\Component\Container\Contract\AbstractProvider;
 use NeoPHP\Component\Container\Contract\ContainerInterface;
+use NeoPHP\Component\Http\Request\Request;
 use NeoPHP\Component\Routing\Cache\RouteCache;
 use NeoPHP\Component\Routing\Contract\RoutingInterface;
 use NeoPHP\Component\Routing\Loader\YamlRouteLoader;
@@ -18,6 +19,8 @@ class RoutingProvider extends AbstractProvider
     public const ROUTE_FILES = ['routes.yaml', 'routes.yml'];
 
     public const CACHE_DIRECTORY = 'routing';
+
+    public const URL_KEY = 'framework.app.url';
 
     public function register(ContainerInterface $container): void
     {
@@ -31,6 +34,7 @@ class RoutingProvider extends AbstractProvider
 
             $yaml = $container->get(YamlInterface::class);
             $routing = new RoutingManager($yaml, null, $resolver);
+            $routing->setBaseUrl(static fn (): ?string => self::baseUrl($container));
             $file = self::routesFile($container);
 
             if ($file === null) {
@@ -68,6 +72,25 @@ class RoutingProvider extends AbstractProvider
         });
 
         $container->alias(RoutingManager::class, RoutingInterface::class);
+    }
+
+    protected static function baseUrl(ContainerInterface $container): ?string
+    {
+        if ($container->has(Request::class)) {
+            $request = $container->get(Request::class);
+
+            if ($request instanceof Request && (string) $request->headers->get('Host', '') !== '') {
+                return $request->getSchemeAndHttpHost();
+            }
+        }
+
+        if (!$container->has(ConfigInterface::class)) {
+            return null;
+        }
+
+        $url = $container->get(ConfigInterface::class)->get(self::URL_KEY);
+
+        return is_string($url) && $url !== '' ? $url : null;
     }
 
     protected static function routesFile(ContainerInterface $container): ?string
