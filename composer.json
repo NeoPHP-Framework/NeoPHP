@@ -24,8 +24,10 @@
         "twig/twig": "<3.0"
     },
     "suggest": {
+        "ext-dom": "Required to convert HTML to Markdown (Markdown package: parse() and convert())",
         "ext-fileinfo": "Required to detect the mime type of uploaded files (File and Image constraints) and of email attachments",
-        "ext-openssl": "Required to send emails over SSL/TLS (smtps:// or STARTTLS)",
+        "ext-mbstring": "Required by the Markdown package (heading anchors) and recommended for UTF-8 text",
+        "ext-openssl": "Required to send emails over SSL/TLS (smtps:// or STARTTLS) and to download the Tailwind CLI (tailwind:install)",
         "ext-pdo": "Required to use the Database component",
         "ext-pdo_mysql": "Required to connect to MySQL / MariaDB databases",
         "ext-pdo_pgsql": "Required to connect to PostgreSQL databases",
