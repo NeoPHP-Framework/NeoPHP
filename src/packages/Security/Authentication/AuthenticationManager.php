@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace NeoPHP\Package\Security\Authenticator;
+namespace NeoPHP\Package\Security\Authentication;
 
 use Closure;
 use NeoPHP\Component\Csrf\Contract\CsrfInterface;
