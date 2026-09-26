@@ -159,6 +159,15 @@ public ?string $username = null;
 
 Placeholders: `{{ value }}`, `{{ limit }}`, `{{ min }}`, `{{ max }}`, `{{ compared_value }}`, `{{ choices }}`, `{{ type }}`, and for files `{{ size }}`, `{{ types }}`, `{{ extension }}`, `{{ width }}`, `{{ height }}`.
 
+The messages are translated in the current locale through the `validators` domain of the Translation package (the key is the English message); an untranslated message stays in English. The framework ships no translation: the application translates or rewords the messages it needs in `translations/validators.{locale}.yaml` (or `.xlf`):
+
+```yaml
+"This value should not be blank.": "Cette valeur ne doit pas être vide."
+"This value is too long. It should have {{ limit }} character(s) or less.": "Cette chaîne est trop longue. Elle doit avoir au maximum {{ limit }} caractère(s)."
+```
+
+The keys are the default messages of the constraints, or the `message` option given to a constraint.
+
 ## Groups
 
 A constraint belongs to the `Default` group (`AbstractConstraint::DEFAULT_GROUP`), unless `groups` is given. `validate()` validates the `Default` group, unless groups are given:
@@ -350,5 +359,6 @@ class UniqueUsernameValidator extends AbstractConstraintValidator
 
 ## Changelog
 
+- v1.20.0 — Messages translated through the Translation package (domain validators).
 - v1.12.0 — `File` and `Image` constraints.
 - v1.10.0 — Constraints usable as attributes or objects, validation of objects, values and arrays, groups, `Valid`, `All`, `Collection`, `Callback`, custom constraints with autowired validators, `validate()` in controllers, 422 JSON response for `ValidationFailedException`.

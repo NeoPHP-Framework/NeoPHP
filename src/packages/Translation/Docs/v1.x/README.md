@@ -32,9 +32,9 @@ locales: [en, fr]
 
 ```yaml
 home:
-  title: Bienvenue
-  hello: "Bonjour {name} !"
-  posts: "{count, plural, =0 {Aucun article} one {# article} other {# articles}}"
+    title: Bienvenue
+    hello: "Bonjour {name} !"
+    posts: "{count, plural, =0 {Aucun article} one {# article} other {# articles}}"
 ```
 
 ```twig
@@ -57,14 +57,14 @@ path: '%kernel.root_path%/translations'
 default_domain: messages
 format: yaml
 detection:
-  order: [route, query, session, cookie, header]
-  query_parameter: lang
-  session_key: _locale
-  cookie_name: locale
-  cookie_lifetime: 31536000
+    order: [route, query, session, cookie, header]
+    query_parameter: lang
+    session_key: _locale
+    cookie_name: locale
+    cookie_lifetime: 31536000
 cache: true
 extract:
-  paths: [templates, src]
+    paths: [templates, src]
 ```
 
 | Key | Default | Description |
@@ -93,7 +93,7 @@ YAML: nested keys are flattened with dots (`home.title`). A key can also be the 
 
 ```yaml
 home:
-  title: Bienvenue
+    title: Bienvenue
 "Read more": "Lire la suite"
 ```
 
@@ -102,20 +102,20 @@ XLIFF 1.2 (the key is the `resname` attribute, or the `source` when there is non
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
 <xliff xmlns="urn:oasis:names:tc:xliff:document:1.2" version="1.2">
-  <file source-language="en" target-language="fr" datatype="plaintext" original="messages">
-    <body>
-      <trans-unit id="1" resname="home.title">
-        <source>home.title</source>
-        <target>Bienvenue</target>
-      </trans-unit>
-    </body>
-  </file>
+    <file source-language="en" target-language="fr" datatype="plaintext" original="messages">
+        <body>
+            <trans-unit id="1" resname="home.title">
+                <source>home.title</source>
+                <target>Bienvenue</target>
+            </trans-unit>
+        </body>
+    </file>
 </xliff>
 ```
 
 An empty message (`""` or an empty `<target>`) is considered untranslated: the fallback locales are tried, then the key is returned.
 
-Priority, from the lowest: the framework files (`src/packages/Translation/Resources/translations`: `validators` and `security` in `en` and `fr`), the files added with `addResource()`, then the application files. A bundle can register its own files or messages in a provider:
+Priority, from the lowest: the files added with `addResource()`, then the application files of `translations/`. The framework ships no translation file. A bundle can register its own files or messages in a provider:
 
 ```php
 $translator->addResource(__DIR__ . '/../Resources/translations/shop.fr.yaml');
@@ -220,18 +220,39 @@ When a message is translated in the current locale, the framework uses it; other
 - Form: labels, helps, placeholders and choice labels go through the `translation_domain` option of the field (inherited from the parent, `messages` by default, `false` disables it); errors go through `validators`
 - Security: `AuthenticationException::getSafeMessage()` (login errors, `last_authentication_error()`, JSON errors) goes through the `security` domain, with the exception parameters (`{minutes}`)
 
-The framework ships `validators` and `security` messages in English and French. Override or add a message in the application:
+The framework ships no translation file: its messages are written in English and used as keys. To translate or reword them, create `translations/validators.{locale}.yaml|xlf` and `translations/security.{locale}.yaml|xlf` in the application, with only the messages you need (the others stay in English).
+
+`translations/validators.fr.yaml`:
 
 ```yaml
-# translations/validators.fr.yaml
-"This value should not be blank.": "Ce champ est obligatoire."
+"This value should not be blank.": "Cette valeur ne doit pas être vide."
+"This value is not a valid email address.": "Cette valeur n'est pas une adresse email valide."
+"This value is too short. It should have {{ limit }} character(s) or more.": "Cette chaîne est trop courte. Elle doit avoir au minimum {{ limit }} caractère(s)."
 "The username {{ value }} is already used.": "Le nom {{ value }} est déjà utilisé."
+"The CSRF token is invalid. Please try to resubmit the form.": "Le jeton CSRF est invalide. Veuillez renvoyer le formulaire."
 ```
 
-```yaml
-# translations/security.de.yaml
-"Invalid credentials.": "Ungültige Anmeldedaten."
+`translations/security.fr.xlf`:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<xliff xmlns="urn:oasis:names:tc:xliff:document:1.2" version="1.2">
+  <file source-language="en" target-language="fr" datatype="plaintext" original="security">
+    <body>
+      <trans-unit id="1" resname="Invalid credentials.">
+        <source>Invalid credentials.</source>
+        <target>Identifiants invalides.</target>
+      </trans-unit>
+      <trans-unit id="2" resname="Too many failed login attempts, please try again in {minutes} minute(s).">
+        <source>Too many failed login attempts, please try again in {minutes} minute(s).</source>
+        <target>Trop de tentatives de connexion, réessayez dans {minutes} minute(s).</target>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>
 ```
+
+The keys of the `validators` domain are the default messages of the constraints (listed in the Validator documentation) and `The CSRF token is invalid. Please try to resubmit the form.` (Form). The keys of the `security` domain are `Invalid credentials.`, `Invalid CSRF token.`, `Too many failed login attempts, please try again in {minutes} minute(s).` and `An authentication exception occurred.`, plus the safe message of a custom `AuthenticationException`.
 
 The login error is translated when the login fails: it is stored in the session in the locale of the login request.
 
@@ -252,7 +273,7 @@ php bin/neo translation:debug fr --only-missing
 php bin/neo translation:lint
 ```
 
-`translation:debug` states: `translated` (the locale translates it), `fallback` (a fallback locale does), `missing` (nobody does), `unused` (in a file but not found in the code). The framework messages are only listed with `--domain`.
+`translation:debug` states: `translated` (the locale translates it), `fallback` (a fallback locale does), `missing` (nobody does), `unused` (in a file but not found in the code). The keys of the `validators` and `security` domains are never `unused`: the framework uses them.
 
 ## Cache
 
@@ -272,7 +293,7 @@ The catalogue of each locale is compiled into `var/cache/translation/{locale}.ph
 | `getDomains(?string $locale = null): array` | known domains |
 | `addResource(string $file, ?string $locale = null, ?string $domain = null)` | adds a file (bundles) |
 | `addMessages(array $messages, string $locale, ?string $domain = null)` | adds messages at runtime (highest priority) |
-| `getResources(?string $locale = null, bool $framework = true): array` | loaded files (`file`, `domain`, `locale`, `format`, `framework`) |
+| `getResources(?string $locale = null): array` | loaded files (`file`, `domain`, `locale`, `format`, `priority`) |
 | `loadFile(string $file): array` | flat messages of a file |
 | `getFormatter(): MessageFormatter` | message formatter (`format()`, `validate()`) |
 | `clearCache()` | removes the compiled catalogues |

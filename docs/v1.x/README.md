@@ -224,23 +224,23 @@ php bin/neo make:auth --twig
 
 ```yaml
 providers:
-  users:
-    entity:
-      class: App\Entity\User
-      property: email
+    users:
+        entity:
+            class: App\Entity\User
+            property: email
 
 firewalls:
-  main:
-    pattern: ^/
-    provider: users
-    form_login:
-      login_path: app_login
-      enable_csrf: true
-    logout:
-      path: app_logout
+    main:
+        pattern: ^/
+        provider: users
+        form_login:
+            login_path: app_login
+            enable_csrf: true
+        logout:
+            path: app_logout
 
 access_control:
-  - { path: ^/admin, roles: ROLE_ADMIN }
+    - { path: ^/admin, roles: ROLE_ADMIN }
 ```
 
 In controllers: `$this->getUser()`, `$this->denyAccessUnlessGranted('ROLE_ADMIN')`, `#[IsGranted('ROLE_ADMIN')]`. In templates: `app_user()`, `is_granted('ROLE_ADMIN')`, `logout_path()`. See the Security documentation.
@@ -264,8 +264,8 @@ Enable the locales in `config/packages/translation.yaml` (`locales: [en, fr]`) a
 
 ```yaml
 home:
-  title: Bienvenue
-  posts: "{count, plural, =0 {Aucun article} one {# article} other {# articles}}"
+    title: Bienvenue
+    posts: "{count, plural, =0 {Aucun article} one {# article} other {# articles}}"
 ```
 
 ```twig
@@ -273,7 +273,7 @@ home:
 <p>{{ translate('home.posts', {count: posts|length}) }}</p>
 ```
 
-The locale is detected from the route `{_locale}`, `?lang=`, the session, a cookie or `Accept-Language`; `$this->switchLocale('fr')` in a controller remembers it. Validation and login errors are translated too. `php bin/neo translation:generate` adds the missing keys to the files. See the Translation documentation.
+The locale is detected from the route `{_locale}`, `?lang=`, the session, a cookie or `Accept-Language`; `$this->switchLocale('fr')` in a controller remembers it. Validation and login errors are written in English and translated through `translations/validators.fr.yaml` and `translations/security.fr.yaml`. `php bin/neo translation:generate` adds the missing keys to the files. See the Translation documentation.
 
 ## Useful commands
 
