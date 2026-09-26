@@ -1,0 +1,163 @@
+# Http
+
+The Http component models the HTTP request and response: parameter bags, uploaded files, HTML, JSON and redirect responses, and HTTP exceptions.
+It has no dependency and is used by the kernel, the routing and the controllers.
+
+## Summary
+
+- [Request](#request)
+- [Bags](#bags)
+- [Uploaded files](#uploaded-files)
+- [Responses](#responses)
+- [HTTP service](#http-service)
+- [Controller helpers](#controller-helpers)
+- [HTTP exceptions](#http-exceptions)
+- [Changelog](#changelog)
+
+## Request
+
+`NeoPHP\Component\Http\Request\Request` is injected in a controller action by its type.
+
+```php
+public function search(Request $request): Response
+{
+    $query = $request->query->getString('q');
+    $page = $request->query->getInt('page', 1);
+
+    return $this->render('search.html.twig', ['query' => $query, 'page' => $page]);
+}
+```
+
+| Property | Content |
+|---|---|
+| `query` | GET parameters (`ParameterBag`) |
+| `request` | POST parameters, and the JSON body for POST, PUT, PATCH, DELETE (`ParameterBag`) |
+| `attributes` | route parameters, `_route`, `_controller` (`ParameterBag`) |
+| `cookies` | cookies (`ParameterBag`) |
+| `files` | uploaded files (`FileBag`) |
+| `server` | `$_SERVER` (`ParameterBag`) |
+| `headers` | headers (`HeaderBag`) |
+
+| Method | Returns |
+|---|---|
+| `Request::fromGlobals()` | a request built from the PHP globals |
+| `Request::create($uri, $method, $parameters, $server, $content)` | a request built by hand (tests, sub-requests) |
+| `new Request($query, $request, $attributes, $cookies, $files, $server, $content)` | a request |
+| `getMethod()` | HTTP method; a POST can send `_method` or `X-HTTP-Method-Override` with `PUT`, `PATCH` or `DELETE` |
+| `getRealMethod()`, `setMethod($method)`, `isMethod($method)` | real method, override, comparison |
+| `getPath()`, `getQueryString()`, `getUri()` | URL parts |
+| `getScheme()`, `isSecure()`, `getHost()`, `getPort()`, `getSchemeAndHttpHost()` | server information |
+| `getClientIp()` | `REMOTE_ADDR` or `null` |
+| `getContent()`, `toArray()` | raw body, decoded JSON body |
+| `get($key, $default)` | value from `attributes`, then `query`, then `request` |
+| `getContentType()`, `isJson()`, `wantsJson()`, `isXmlHttpRequest()` | content negotiation |
+
+`Request::METHODS` lists the accepted methods.
+
+## Bags
+
+`ParameterBag` (query, request, attributes, cookies, server) is iterable and countable:
+
+| Method | Description |
+|---|---|
+| `all()`, `keys()` | all values, all keys |
+| `get($key, $default)`, `has($key)`, `set($key, $value)`, `remove($key)` | access |
+| `replace($parameters)`, `add($parameters)` | replace or merge values |
+| `getString($key, $default)`, `getInt($key, $default)`, `getBoolean($key, $default)` | typed values |
+
+`FileBag` extends `ParameterBag` and holds `UploadedFile` objects (or lists of them).
+
+`HeaderBag` is case-insensitive: `all()`, `get($name, $default)` (first value), `getValues($name)`, `set($name, $values, $replace)`, `has()`, `remove()`, `HeaderBag::fromServer($server)`.
+
+## Uploaded files
+
+```php
+$file = $request->files->get('avatar');
+
+if ($file instanceof UploadedFile && $file->isValid()) {
+    $name = $file->move($this->getParameter('kernel.root_path') . '/public/uploads', uniqid() . '.' . $file->getClientOriginalExtension());
+}
+```
+
+| Method | Returns |
+|---|---|
+| `getPath()` | temporary path |
+| `getClientOriginalName()`, `getClientOriginalExtension()`, `getClientMimeType()` | information sent by the client |
+| `getSize()` | size in bytes |
+| `getError()`, `getErrorMessage()`, `isValid()` | upload status (`UPLOAD_ERR_*`) |
+| `move($directory, $name)` | moves the file and returns its new path |
+
+## Responses
+
+```php
+$response = new Response('<h1>Hello</h1>', 200, ['X-Custom' => 'value']);
+$response->setStatusCode(201);
+$response->setHeader('Cache-Control', 'no-cache');
+$response->setCookie('theme', 'dark', time() + 3600);
+
+new JsonResponse(['ok' => true]);
+new RedirectResponse('/login');
+```
+
+`Response`:
+
+| Method | Description |
+|---|---|
+| `getContent()`, `setContent($content)` | body |
+| `getStatusCode()`, `setStatusCode($code)`, `getReasonPhrase()` | status |
+| `getProtocolVersion()`, `setProtocolVersion($version)` | protocol (`1.1`) |
+| `$response->headers`, `setHeader($name, $values, $replace)` | headers |
+| `setCookie($name, $value, $expires, $path, $domain, $secure, $httpOnly, $sameSite)` | adds a `Set-Cookie` header (`$expires`: timestamp or `DateTimeInterface`, `0` for a session cookie) |
+| `clearCookie($name, $path, $domain)` | expires a cookie |
+| `isInformational()`, `isSuccessful()`, `isRedirection()`, `isClientError()`, `isServerError()`, `isEmpty()` | status checks |
+| `prepare($request)` | fixes the headers for the request (default `Content-Type`, `HEAD`, empty responses) |
+| `send()`, `sendHeaders()`, `sendContent()` | sends the response |
+
+`JsonResponse($data, $status, $headers, $flags)` encodes `$data` (`getData()`, `setData()`); `JsonResponse::DEFAULT_FLAGS` keeps slashes and unicode unescaped. `RedirectResponse($url, $status = 302, $headers)` sets the `Location` header (`getTargetUrl()`).
+
+## HTTP service
+
+`NeoPHP\Component\Http\Contract\HttpInterface` (implemented by `HttpManager`) can be injected in a service:
+
+| Method | Returns |
+|---|---|
+| `createRequestFromGlobals()` | the current `Request` |
+| `createResponse($content, $status, $headers)` | a `Response` |
+| `json($data, $status, $headers)` | a `JsonResponse` |
+| `redirect($url, $status, $headers)` | a `RedirectResponse` |
+| `send($response, $request)` | prepares and sends the response |
+
+## Controller helpers
+
+The trait `HttpController` of `AbstractController` provides:
+
+```php
+return $this->json(['id' => $post->getId()], 201);
+return $this->redirect('/posts');
+throw $this->createNotFoundException('Post {id} not found.', ['id' => $id]);
+throw $this->createAccessDeniedException();
+```
+
+To redirect to a route, use `redirectToRoute()` (see the Routing documentation).
+
+## HTTP exceptions
+
+All extend `NeoPHP\Component\Exception\FrameworkException` (see the Exception documentation):
+
+| Exception | Status | Constructor |
+|---|---|---|
+| `HttpException` | any | `($statusCode = 500, $message = '', $headers = [], $context = [], $previous = null)` |
+| `BadRequestHttpException` | 400 | `($message = 'Bad Request', $context = [], $previous = null)` |
+| `AccessDeniedHttpException` | 403 | `($message = 'Forbidden', $context = [], $previous = null)` |
+| `NotFoundHttpException` | 404 | `($message = 'Not Found', $context = [], $previous = null)` |
+
+```php
+throw new HttpException(503, 'Maintenance in progress.', ['Retry-After' => '3600']);
+```
+
+Errors are rendered as HTML, or as JSON when the request sends `Accept: application/json`.
+
+## Changelog
+
+- v1.17.x (bugfix) — absolute URLs fall back on `getSchemeAndHttpHost()` of the request when `APP_URL` is not set.
+- v1.0.0 — `Request`, `Response`, `JsonResponse`, `RedirectResponse`, bags, uploaded files, HTTP exceptions and JSON errors.
