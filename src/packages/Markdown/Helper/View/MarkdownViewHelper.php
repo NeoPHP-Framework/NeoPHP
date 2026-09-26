@@ -1,0 +1,26 @@
+<?php
+
+declare(strict_types=1);
+
+namespace NeoPHP\Package\Markdown\Helper\View;
+
+use NeoPHP\Component\View\Contract\ViewFilterInterface;
+use NeoPHP\Component\View\Contract\ViewSafeHtmlInterface;
+use NeoPHP\Package\Markdown\Contract\MarkdownParserInterface;
+
+class MarkdownViewHelper implements ViewFilterInterface, ViewSafeHtmlInterface
+{
+    public function __construct(protected MarkdownParserInterface $markdown)
+    {
+    }
+
+    public function getName(): string
+    {
+        return 'markdown';
+    }
+
+    public function __invoke(?string $text): string
+    {
+        return $this->markdown->toHtml((string) $text);
+    }
+}
