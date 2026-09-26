@@ -565,7 +565,7 @@ In `NeoPHP\Package\Security\Exception`, all extending `SecurityException`:
 | Exception | Description |
 |---|---|
 | `AccessDeniedException` | access denied (`getAttributes()`, `getSubject()`) |
-| `AuthenticationException` | authentication failure; `getSafeMessage()` is the message shown to the user |
+| `AuthenticationException` | authentication failure; `getSafeMessage()` is the message shown to the user, translated through the `security` domain of the Translation package (`translations/security.{locale}.yaml` or `.xlf`, the key is the English message: `Invalid credentials.`, `Invalid CSRF token.`, `Too many failed login attempts, please try again in {minutes} minute(s).`, `An authentication exception occurred.`) |
 | `BadCredentialsException` | invalid credentials |
 | `UserNotFoundException` | unknown user (shown as `Invalid credentials.`) |
 | `InvalidCsrfTokenException` | invalid CSRF token |
@@ -585,6 +585,7 @@ The `make:*` commands never overwrite a file without `--force`. See the Console 
 
 ## Changelog
 
+- v1.20.0 — Messages translated through the Translation package (domain security).
 - bugfix — `UserClass::of()` resolves the real class of ORM proxies; `AuthenticationManager` and `Passport` moved to `NeoPHP\Package\Security\Authentication`.
 - bugfix (after v1.17.0) — `make:auth` creates the missing base layout.
 - v1.17.0 — `make:user`, `make:auth` and `make:voter` ask for their values.

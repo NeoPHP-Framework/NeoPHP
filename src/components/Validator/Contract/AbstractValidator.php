@@ -10,9 +10,12 @@ use NeoPHP\Component\Validator\Exception\ValidationFailedException;
 use NeoPHP\Component\Validator\Exception\ValidatorException;
 use NeoPHP\Component\Validator\Metadata\MetadataFactory;
 use NeoPHP\Component\Validator\Violation\ViolationList;
+use NeoPHP\Package\Translation\Contract\TranslatorInterface;
 
 abstract class AbstractValidator implements ValidatorInterface
 {
+    public const TRANSLATION_DOMAIN = 'validators';
+
     protected ?ContainerInterface $container = null;
 
     protected MetadataFactory $metadata;
@@ -38,6 +41,15 @@ abstract class AbstractValidator implements ValidatorInterface
         }
 
         return $context->getViolations();
+    }
+
+    public function translateMessage(string $message): string
+    {
+        if ($message === '' || $this->container === null || !$this->container->has(TranslatorInterface::class)) {
+            return $message;
+        }
+
+        return $this->container->get(TranslatorInterface::class)->translate($message, [], self::TRANSLATION_DOMAIN);
     }
 
     public function validateProperty(object $object, string $property, array $groups = [AbstractConstraint::DEFAULT_GROUP]): ViolationList

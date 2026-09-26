@@ -11,6 +11,8 @@ use NeoPHP\Component\Form\Exception\FormException;
 use NeoPHP\Component\Form\FormView;
 use NeoPHP\Component\Form\Theme\Bootstrap5Theme;
 use NeoPHP\Component\Form\Theme\DefaultTheme;
+use NeoPHP\Component\Validator\Contract\AbstractValidator;
+use NeoPHP\Package\Translation\Contract\TranslatorInterface;
 
 class FormRenderer
 {
@@ -86,6 +88,8 @@ class FormRenderer
             $variables['attr'] = array_replace((array) ($view->vars['attr'] ?? []), $vars['attr']);
         }
 
+        $variables = $this->translateVariables($variables);
+
         foreach (array_reverse((array) ($view->vars['block_prefixes'] ?? ['form'])) as $prefix) {
             $method = self::camelize($prefix . '_' . $block);
 
@@ -105,6 +109,42 @@ class FormRenderer
             'block' => $block,
             'field' => $view->vars['full_name'] ?? '',
         ]);
+    }
+
+    public function translateVariables(array $variables): array
+    {
+        if ($this->container === null || !$this->container->has(TranslatorInterface::class)) {
+            return $variables;
+        }
+
+        $translator = $this->container->get(TranslatorInterface::class);
+        $domain = $variables['translation_domain'] ?? null;
+
+        if ($domain === false) {
+            return $variables;
+        }
+
+        $domain = is_string($domain) && $domain !== '' ? $domain : null;
+
+        foreach (['label', 'help', 'placeholder'] as $name) {
+            if (isset($variables[$name]) && is_string($variables[$name]) && $variables[$name] !== '') {
+                $variables[$name] = $translator->translate($variables[$name], [], $domain);
+            }
+        }
+
+        if (isset($variables['choices']) && is_array($variables['choices'])) {
+            foreach ($variables['choices'] as $index => $choice) {
+                if (is_array($choice) && isset($choice['label']) && is_string($choice['label']) && $choice['label'] !== '') {
+                    $variables['choices'][$index]['label'] = $translator->translate($choice['label'], [], $domain);
+                }
+            }
+        }
+
+        if (isset($variables['errors']) && is_array($variables['errors'])) {
+            $variables['errors'] = array_map(static fn (mixed $error): mixed => is_string($error) ? $translator->translate($error, [], AbstractValidator::TRANSLATION_DOMAIN) : $error, $variables['errors']);
+        }
+
+        return $variables;
     }
 
     public function getTheme(FormView $view): ThemeInterface

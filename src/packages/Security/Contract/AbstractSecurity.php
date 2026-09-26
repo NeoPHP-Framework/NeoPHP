@@ -30,10 +30,13 @@ use NeoPHP\Package\Security\Token\SecurityToken;
 use NeoPHP\Package\Security\Token\TokenStorage;
 use NeoPHP\Package\Security\User\UserClass;
 use NeoPHP\Package\Security\Voter\AuthenticatedVoter;
+use NeoPHP\Package\Translation\Contract\TranslatorInterface;
 use Throwable;
 
 abstract class AbstractSecurity implements SecurityInterface
 {
+    public const TRANSLATION_DOMAIN = 'security';
+
     protected ContainerInterface $container;
 
     protected TokenStorage $tokens;
@@ -172,7 +175,7 @@ abstract class AbstractSecurity implements SecurityInterface
             ? $exception
             : new AuthenticationException('Full authentication is required to access this resource.', 0, $exception);
 
-        return $firewall->getEntryPoint()->start($request, $authentication);
+        return $firewall->getEntryPoint()->start($request, $this->translateException($authentication));
     }
 
     public function login(UserInterface $user, ?string $firewall = null, bool $rememberMe = false): void
@@ -247,6 +250,7 @@ abstract class AbstractSecurity implements SecurityInterface
         try {
             [$token, $passport] = $this->authentication->authenticate($request, $firewall, $authenticator);
         } catch (AuthenticationException $exception) {
+            $this->translateException($exception);
             $event = $this->dispatch(new LoginFailureEvent($exception, $firewall->getName(), $request, $authenticator->onAuthenticationFailure($request, $exception), $name));
 
             return $event instanceof LoginFailureEvent ? $event->getResponse() : null;
@@ -368,6 +372,21 @@ abstract class AbstractSecurity implements SecurityInterface
         }
 
         return $response;
+    }
+
+    protected function translateException(AuthenticationException $exception): AuthenticationException
+    {
+        if (!$this->container->has(TranslatorInterface::class)) {
+            return $exception;
+        }
+
+        try {
+            $exception->setTranslatedSafeMessage($this->container->get(TranslatorInterface::class)->translate($exception->getSafeMessageKey(), $exception->getSafeMessageParameters(), self::TRANSLATION_DOMAIN));
+        } catch (Throwable) {
+            $exception->setTranslatedSafeMessage(null);
+        }
+
+        return $exception;
     }
 
     protected function dispatch(object $event): object

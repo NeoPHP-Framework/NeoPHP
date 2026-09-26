@@ -48,6 +48,7 @@ class FormType extends AbstractType
             'row_attr' => [],
             'help' => null,
             'help_attr' => [],
+            'translation_domain' => null,
             'mapped' => true,
             'property_path' => null,
             'constraints' => [],
