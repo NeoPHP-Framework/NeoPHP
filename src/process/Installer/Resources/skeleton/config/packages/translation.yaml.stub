@@ -1,0 +1,17 @@
+default_locale: en
+locales: [en]
+fallbacks: [en]
+path: '%kernel.root_path%/translations'
+default_domain: messages
+format: yaml
+
+detection:
+    order: [route, query, session, cookie, header]
+    query_parameter: lang
+    session_key: _locale
+    cookie_name: locale
+
+cache: true
+
+extract:
+    paths: [templates, src]

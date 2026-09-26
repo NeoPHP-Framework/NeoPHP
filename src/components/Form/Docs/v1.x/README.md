@@ -129,7 +129,7 @@ public function edit(Request $request, PostRepository $posts, ?int $id = null): 
 | `RepeatedType` | the value of both fields | `type`, `options`, `first_options`, `second_options`, `first_name`, `second_name`, `invalid_message` |
 | `SubmitType`, `ButtonType` | none (not mapped) | `isClicked()` |
 
-Options shared by every field: `label` (`false` hides it), `label_attr`, `attr`, `row_attr`, `help`, `help_attr`, `required` (HTML attribute, not a constraint), `disabled`, `mapped` (`false`: not read nor written in the data), `property_path`, `data` (forced initial value), `empty_data`, `constraints`, `invalid_message`, `trim`. Options of the root form: `data_class`, `method`, `action`, `csrf_protection`, `csrf_field_name`, `csrf_token_id`, `validation_groups`, `allow_extra_fields`, `theme`.
+Options shared by every field: `label` (`false` hides it), `label_attr`, `attr`, `row_attr`, `help`, `help_attr`, `required` (HTML attribute, not a constraint), `disabled`, `mapped` (`false`: not read nor written in the data), `property_path`, `data` (forced initial value), `empty_data`, `constraints`, `invalid_message`, `trim`, `translation_domain` (domain of the label, help, placeholder and choice labels, inherited from the parent; `false` disables their translation). Options of the root form: `data_class`, `method`, `action`, `csrf_protection`, `csrf_field_name`, `csrf_token_id`, `validation_groups`, `allow_extra_fields`, `theme`.
 
 A form can be used as a field of another form (`->add('address', AddressForm::class)`): its data is read and written in the property `address`.
 
@@ -222,6 +222,8 @@ Twig templates:
 
 The helpers accept the form or `$form->createView()`. The variables (`attr`, `label`, `label_attr`, `row_attr`, `help`...) override the options of the field.
 
+The labels, helps, placeholders and choice labels are translated through the Translation package (domain `translation_domain`, `messages` by default) and the errors through the `validators` domain (`translations/validators.{locale}.yaml|xlf`, key `The CSRF token is invalid. Please try to resubmit the form.` for the CSRF error); an untranslated text is rendered as written.
+
 ## Themes
 
 `config/framework/form.yaml`:
@@ -256,6 +258,7 @@ The theme of one form is set with the option `'theme' => 'bootstrap5'`. A theme 
 
 ## Changelog
 
+- v1.20.0 — Messages translated through the Translation package (domain validators); `translation_domain` option for labels, helps and choices.
 - v1.17.0 — `make:form` asks for its values when they are missing.
 - v1.15.0 — `make:form` rewritten for the new console.
 - v1.12.0 — Form component: form classes mapped to an entity or an array, field types, conversion and data mapping, validation, `default` and `bootstrap5` themes, `form_*` view helpers, automatic CSRF token, `make:form`.
