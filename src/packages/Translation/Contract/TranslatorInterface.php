@@ -38,7 +38,7 @@ interface TranslatorInterface
 
     public function addMessages(array $messages, string $locale, ?string $domain = null): static;
 
-    public function getResources(?string $locale = null, bool $framework = true): array;
+    public function getResources(?string $locale = null): array;
 
     public function loadFile(string $file): array;
 

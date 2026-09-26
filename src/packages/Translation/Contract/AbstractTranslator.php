@@ -33,8 +33,6 @@ abstract class AbstractTranslator implements TranslatorInterface
 
     protected string $path;
 
-    protected string $frameworkPath;
-
     protected ?string $cachePath = null;
 
     protected bool $debug = false;
@@ -208,7 +206,7 @@ abstract class AbstractTranslator implements TranslatorInterface
             throw new TranslationException('Unable to guess the domain and the locale of "{file}": name it {domain}.{locale}.{yaml|xlf} or pass them.', 0, null, ['file' => $file]);
         }
 
-        $resource ??= ['file' => $file, 'domain' => (string) $domain, 'locale' => '', 'format' => self::FORMATS[strtolower(pathinfo($file, PATHINFO_EXTENSION))] ?? 'yaml', 'priority' => 1, 'framework' => false];
+        $resource ??= ['file' => $file, 'domain' => (string) $domain, 'locale' => '', 'format' => self::FORMATS[strtolower(pathinfo($file, PATHINFO_EXTENSION))] ?? 'yaml', 'priority' => 1];
         $resource['locale'] = $locale !== null ? (static::normalizeLocale($locale) ?? $locale) : $resource['locale'];
         $resource['domain'] = $domain ?? $resource['domain'];
 
@@ -229,13 +227,13 @@ abstract class AbstractTranslator implements TranslatorInterface
         return $this;
     }
 
-    public function getResources(?string $locale = null, bool $framework = true): array
+    public function getResources(?string $locale = null): array
     {
         $resources = [];
         $locale = $locale !== null ? (static::normalizeLocale($locale) ?? $locale) : null;
 
         foreach ($this->scan() as $resource) {
-            if (($locale === null || $resource['locale'] === $locale) && ($framework || !$resource['framework'])) {
+            if ($locale === null || $resource['locale'] === $locale) {
                 $resources[] = $resource;
             }
         }
@@ -340,10 +338,8 @@ abstract class AbstractTranslator implements TranslatorInterface
             $files[$resource['file']] = (int) filemtime($resource['file']);
         }
 
-        foreach ([$this->path, $this->frameworkPath] as $directory) {
-            if (is_dir($directory)) {
-                $files[$directory] = (int) filemtime($directory);
-            }
+        if (is_dir($this->path)) {
+            $files[$this->path] = (int) filemtime($this->path);
         }
 
         return $files;
@@ -355,14 +351,14 @@ abstract class AbstractTranslator implements TranslatorInterface
             return $this->scanned;
         }
 
-        $resources = [...$this->scanDirectory($this->frameworkPath, 0, true), ...$this->resources, ...$this->scanDirectory($this->path, 2, false)];
+        $resources = [...$this->resources, ...$this->scanDirectory($this->path, 2)];
 
         usort($resources, static fn (array $a, array $b): int => $a['priority'] <=> $b['priority']);
 
         return $this->scanned = $resources;
     }
 
-    protected function scanDirectory(string $directory, int $priority, bool $framework): array
+    protected function scanDirectory(string $directory, int $priority): array
     {
         if (!is_dir($directory)) {
             return [];
@@ -373,7 +369,7 @@ abstract class AbstractTranslator implements TranslatorInterface
         sort($files);
 
         foreach ($files as $name) {
-            $resource = static::describe($directory . '/' . $name, $priority, $framework);
+            $resource = static::describe($directory . '/' . $name, $priority);
 
             if ($resource !== null && is_file($resource['file'])) {
                 $resources[] = $resource;
@@ -388,7 +384,7 @@ abstract class AbstractTranslator implements TranslatorInterface
         return in_array($locale, array_column($this->scan(), 'locale'), true) || isset($this->messages[$locale]);
     }
 
-    public static function describe(string $file, int $priority = 2, bool $framework = false): ?array
+    public static function describe(string $file, int $priority = 2): ?array
     {
         if (preg_match(self::FILE_PATTERN, basename($file), $match) !== 1) {
             return null;
@@ -406,7 +402,6 @@ abstract class AbstractTranslator implements TranslatorInterface
             'locale' => $locale,
             'format' => self::FORMATS[strtolower($match['extension'])],
             'priority' => $priority,
-            'framework' => $framework,
         ];
     }
 

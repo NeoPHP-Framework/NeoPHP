@@ -44,7 +44,6 @@ class TranslationManager extends AbstractTranslator
         $this->path = $this->config['path'];
         $this->cache = $this->config['cache'];
         $this->locale = $this->defaultLocale;
-        $this->frameworkPath = str_replace('\\', '/', __DIR__) . '/Resources/translations';
         $this->cachePath = $cachePath !== null ? rtrim(str_replace('\\', '/', $cachePath), '/') : null;
         $this->debug = $debug;
         $this->formatter = new MessageFormatter();
