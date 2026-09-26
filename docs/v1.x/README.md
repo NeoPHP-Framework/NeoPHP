@@ -156,6 +156,8 @@ When a command fails, the message is displayed in an error block; `-v` adds the 
 | `event:list [filter]` | lists the events and their listeners in the order they are called |
 | `cache:clear` (`cc`) | clears `var/cache/` (routes, Twig templates...) |
 | `asset:reload [-m]` | compiles `assets/` into `public/builds/` and rebuilds the manifest (`--minify`) |
+| `tailwind:install [css/app.css] [--tailwind-version=] [--force]` | downloads the Tailwind CSS standalone CLI and prepares the Tailwind file |
+| `tailwind:run [css/app.css] [-w] [-m]` | compiles the Tailwind file and publishes it with the assets (`--watch`, `--minify`) |
 | `database:create [-c name] [--if-not-exists]` (`db:create`) | creates the database of a connection |
 | `database:drop [-c name] [--if-exists]` (`db:drop`) | drops the database of a connection, after a confirmation (or `--force`) |
 | `database:query "SQL" [-c name]` (`db:query`) | executes a SQL query and displays the result |
@@ -803,7 +805,53 @@ hash:
 | `auto_compile` | compiles the changed assets on each request |
 | `hash.algorithm` / `hash.length` | hash function (any `hash_algos()` value) and number of characters kept |
 
-In PHP code, `NeoPHP\Component\Asset\Contract\AssetInterface` provides `url()`, `compile()`, `reload()` and `clear()`. A custom compiler implements `CompilerInterface` and is registered with `addCompiler()`.
+In PHP code, `NeoPHP\Component\Asset\Contract\AssetInterface` provides `url()`, `compile()`, `reload()` and `clear()`. A custom compiler implements `CompilerInterface` and is registered with `addCompiler()`. `setSourceFile('css/app.css', $file)` compiles another file in place of `assets/css/app.css` (used by [Tailwind](#tailwind-css)); the source is used again when that file does not exist.
+
+### Tailwind CSS
+
+The Tailwind package (`src/packages/Tailwind`) runs the official Tailwind CSS v4 standalone CLI: no Node.js, no npm.
+
+```bash
+php bin/neo tailwind:install            # asks the CSS file (css/app.css), downloads the CLI, prepares the file
+php bin/neo tailwind:run --watch        # while developing (Ctrl+C to stop)
+php bin/neo tailwind:run --minify       # before deploying
+```
+
+`tailwind:install [input] [--tailwind-version=4.1.13] [--force]`:
+
+- downloads the CLI of the operating system (Windows, macOS, Linux, x64 / arm64, musl) from the GitHub releases into `var/tailwind/tailwindcss` (`.exe` on Windows) and writes the installed version in `var/tailwind/VERSION`; `--force` downloads it again
+- creates `assets/css/app.css` with `@import "tailwindcss";`, or adds this import at the top of an existing file
+- saves the file name in `config/packages/tailwind.yaml`
+
+`tailwind:run [input] [--watch|-w] [--minify|-m]` compiles `assets/css/app.css` into `var/tailwind/css/app.css`, then publishes it with the assets (`public/builds/css/app-{hash}.css`). The templates keep the usual helper:
+
+```twig
+<link rel="stylesheet" href="{{ asset('css/app.css') }}">
+```
+
+```php
+<link rel="stylesheet" href="<?= $this->e($this->asset('css/app.css')) ?>">
+```
+
+With `--watch`, Tailwind recompiles on every change and, in debug (`auto_compile`), `asset()` serves the new file on the next request. In production, run `tailwind:run --minify` (then `asset:reload` if needed) on every deployment. When the file was never compiled, `asset()` publishes the source file.
+
+Tailwind v4 finds the classes itself by scanning the project (the files ignored by `.gitignore`, such as `vendor/` and `var/`, are skipped). Add `@source "../../other/path";` in the CSS file for other directories, and customize the theme with `@theme { ... }` (see the Tailwind documentation).
+
+`config/packages/tailwind.yaml`
+
+```yaml
+input: css/app.css
+version: latest
+binary: ~
+```
+
+| Option | Description |
+|---|---|
+| `input` | Tailwind CSS file, relative to `assets/` |
+| `version` | version downloaded by `tailwind:install` (`latest` or `4.1.13`) |
+| `binary` | path of an existing Tailwind CLI (absolute or relative to the project): nothing is downloaded |
+
+`tailwind:install` needs `allow_url_fopen` and the `openssl` extension; `tailwind:run` needs `proc_open()`. `var/` must stay out of Git (`neo install` adds it to `.gitignore`).
 
 ## Middlewares
 
@@ -2889,6 +2937,7 @@ src/
 │   ├── Dotenv         .env files loader
 │   ├── Orm            entities, unit of work, repositories, query builders, proxies, migrations
 │   ├── Security       firewalls, authenticators, user providers, password hashers, voters, #[IsGranted]
+│   ├── Tailwind       Tailwind CSS standalone CLI, tailwind:install, tailwind:run
 │   └── Yaml           YAML parser
 └── process/
     ├── Console        neo command line, #[AsCommand], input definitions, styled output, commands discovery
@@ -2935,3 +2984,4 @@ Feature/Helper/Listener/FeatureListener.php     (optional)
 - Mailer component: fluent `Email` (addresses, UTF-8 subject and names, HTML and text with a text version generated from the HTML, attachments, embedded images, priority, custom headers, protection against header injection), native SMTP transport (STARTTLS / implicit TLS, AUTH PLAIN / LOGIN / CRAM-MD5, connection reused), `file`, `log` and `null` transports configured with `MAILER_DSN`, default sender and headers, envelope redirection with `MAILER_RECIPIENTS`, `MessageEvent` / `SentMessageEvent` / `FailedMessageEvent`, `sendEmail()` in controllers, `mailer:test` and `make:email` commands, `config/framework/mailer.yaml` (v1.16.0).
 - Bugfix: absolute URLs (`generateUrl(..., true)`, `url()` view helper, `framework.app.url` / `APP_URL` for the console); `make:auth` creates the missing base layout; `make:migration` asks the optional description only when there are changes; in debug, a view helper file whose name does not match its class throws an error.
 - Interactive console: missing arguments are asked, arguments and options can declare their question (`addArgument(..., $question)`), `interact()` hook, `select()` with `?` to list the choices, numbers and prefixes, `isArgumentProvided()` / `isOptionProvided()`; every `make:*` command, `mailer:test` and `database:query` ask for their values; `make:entity` wizard (fields one by one, guessed types, relations with their inverse side written in the target entity, completion of existing entities, checks before writing), sub-namespace repositories (v1.17.0).
+- Tailwind package: `tailwind:install` downloads the Tailwind CSS v4 standalone CLI (no Node.js) and prepares the CSS file, `tailwind:run [--watch] [--minify]` compiles it into `var/tailwind/` and publishes it with the assets (`asset('css/app.css')`), `config/packages/tailwind.yaml`; `AssetInterface::setSourceFile()` (v1.18.0).

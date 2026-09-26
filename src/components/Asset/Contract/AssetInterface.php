@@ -19,6 +19,10 @@ interface AssetInterface
 
     public function addCompiler(CompilerInterface $compiler): static;
 
+    public function setSourceFile(string $path, ?string $file): static;
+
+    public function getSourceFile(string $path): string;
+
     public function getSourcePath(): string;
 
     public function getBuildPath(): string;
