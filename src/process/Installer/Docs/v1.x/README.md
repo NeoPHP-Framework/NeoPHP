@@ -92,6 +92,7 @@ config/framework/view.yaml
 config/packages/debug.yaml
 config/packages/orm.yaml
 config/packages/security.yaml
+config/packages/translation.yaml
 public/.htaccess
 public/index.php
 src/Controller/HomeController.php
@@ -100,7 +101,7 @@ templates/base.php
 templates/home/index.php
 ```
 
-Directories: `assets/`, `config/packages/`, `migrations/`, `public/builds/`, `src/Command/`, `src/Entity/`, `src/Event/`, `src/Form/`, `src/Listener/`, `src/Middleware/`, `src/Repository/`, `src/Security/`, `src/Service/`, `tests/`, `var/cache/`, `var/log/`, `var/sessions/`.
+Directories: `assets/`, `config/packages/`, `migrations/`, `public/builds/`, `src/Command/`, `src/Entity/`, `src/Event/`, `src/Form/`, `src/Listener/`, `src/Middleware/`, `src/Repository/`, `src/Security/`, `src/Service/`, `tests/`, `translations/`, `var/cache/`, `var/log/`, `var/sessions/`.
 
 `bin/neo` is made executable. It boots the kernel with the environment given by `--env` and runs the console (see the Console documentation).
 
@@ -163,6 +164,7 @@ foreach ($report as $path => $status) {
 
 ## Changelog
 
+- v1.20.0 — `config/packages/translation.yaml` and the `translations/` directory are generated.
 - Bugfix after v1.17.0 — `APP_URL` written in `.env`.
 - v1.11.0 — The missing variables are added to an existing `.env`.
 - v1.0.0 — `neo install` generates the project files, `bin/neo` and the `App\` autoload; existing files kept unless `--force`.

@@ -14,6 +14,7 @@ Each feature has its own documentation in `src/{components,packages,process}/Fea
 - [Forms](#forms)
 - [Login](#login)
 - [Styles with Tailwind](#styles-with-tailwind)
+- [Translations](#translations)
 - [Useful commands](#useful-commands)
 - [Deployment](#deployment)
 - [Features](#features)
@@ -81,7 +82,7 @@ assets/                 CSS, JS and images compiled into public/builds/
 bin/neo                 command line
 config/
     framework/          configuration of the components (app.yaml, database.yaml, mailer.yaml, view.yaml...)
-    packages/           configuration of the packages (orm.yaml, security.yaml, debug.yaml, tailwind.yaml)
+    packages/           configuration of the packages (orm.yaml, security.yaml, debug.yaml, tailwind.yaml, translation.yaml)
     routes.yaml         routes
     services.yaml       services
 migrations/             database migrations
@@ -94,6 +95,7 @@ src/
     Command/            console commands
     Kernel.php
 templates/              PHP (.php) and Twig (.html.twig) templates
+translations/           translation files ({domain}.{locale}.yaml|xlf)
 var/                    cache, logs, sessions
 .env                    environment variables (APP_ENV, APP_DEBUG, APP_SECRET, APP_URL, DATABASE_URL, MAILER_DSN)
 ```
@@ -222,23 +224,23 @@ php bin/neo make:auth --twig
 
 ```yaml
 providers:
-    users:
-        entity:
-            class: App\Entity\User
-            property: email
+  users:
+    entity:
+      class: App\Entity\User
+      property: email
 
 firewalls:
-    main:
-        pattern: ^/
-        provider: users
-        form_login:
-            login_path: app_login
-            enable_csrf: true
-        logout:
-            path: app_logout
+  main:
+    pattern: ^/
+    provider: users
+    form_login:
+      login_path: app_login
+      enable_csrf: true
+    logout:
+      path: app_logout
 
 access_control:
-    - { path: ^/admin, roles: ROLE_ADMIN }
+  - { path: ^/admin, roles: ROLE_ADMIN }
 ```
 
 In controllers: `$this->getUser()`, `$this->denyAccessUnlessGranted('ROLE_ADMIN')`, `#[IsGranted('ROLE_ADMIN')]`. In templates: `app_user()`, `is_granted('ROLE_ADMIN')`, `logout_path()`. See the Security documentation.
@@ -256,6 +258,23 @@ php bin/neo tailwind:run --watch
 
 Without Tailwind, the files of `assets/` are served with `asset()` as well. See the Asset and Tailwind documentation.
 
+## Translations
+
+Enable the locales in `config/packages/translation.yaml` (`locales: [en, fr]`) and write `translations/messages.fr.yaml`:
+
+```yaml
+home:
+  title: Bienvenue
+  posts: "{count, plural, =0 {Aucun article} one {# article} other {# articles}}"
+```
+
+```twig
+<h1>{{ 'home.title'|trans }}</h1>
+<p>{{ translate('home.posts', {count: posts|length}) }}</p>
+```
+
+The locale is detected from the route `{_locale}`, `?lang=`, the session, a cookie or `Accept-Language`; `$this->switchLocale('fr')` in a controller remembers it. Validation and login errors are translated too. `php bin/neo translation:generate` adds the missing keys to the files. See the Translation documentation.
+
 ## Useful commands
 
 | Command | Description |
@@ -268,6 +287,7 @@ Without Tailwind, the files of `assets/` are served with `asset()` as well. See 
 | `php bin/neo cache:clear` | clears `var/cache/` |
 | `php bin/neo asset:reload --minify` | compiles `assets/` into `public/builds/` |
 | `php bin/neo debug:container` | services of the container |
+| `php bin/neo translation:generate` / `translation:debug` / `translation:lint` | translation files |
 
 `php bin/neo help <command>` shows the options and examples of a command. See the Console documentation.
 
@@ -285,13 +305,14 @@ Without Tailwind, the files of `assets/` are served with `asset()` as well. See 
 | Group | Features |
 |---|---|
 | components | Asset, Config, Container, Controller, Cookie, Csrf, Database, Event, Exception, Flash, Form, Http, Kernel, Logger, Mailer, Middleware, Routing, Service, Session, Validator, View |
-| packages | Debug, Dotenv, Markdown, Orm, Security, Tailwind, Yaml |
+| packages | Debug, Dotenv, Markdown, Orm, Security, Tailwind, Translation, Yaml |
 | process | Console, Installer |
 
 The documentation of a feature is in `src/<group>/<Feature>/docs/v1.x/README.md`, for example `src/components/Routing/docs/v1.x/README.md`.
 
 ## Changelog
 
+- v1.20.0 — Translation package (YAML / XLIFF catalogues, ICU-lite plurals, locale detection, `translate()` / `trans`, translated validation and security messages, `translation:generate`, `translation:debug`, `translation:lint`)
 - v1.19.0 — Markdown package (parser, document API, HTML to Markdown, `markdown` filter, `markdown:convert`)
 - v1.18.0 — Tailwind package (`tailwind:install`, `tailwind:run`)
 - Bugfix after v1.17.0 — absolute URLs (`url()`, `APP_URL`), `make:auth` base layout, `make:migration` description, misnamed view helpers reported in debug
