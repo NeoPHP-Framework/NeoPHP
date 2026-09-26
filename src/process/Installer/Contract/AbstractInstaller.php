@@ -37,6 +37,7 @@ abstract class AbstractInstaller implements InstallerInterface
         'src/Security',
         'src/Service',
         'tests',
+        'translations',
         'var/cache',
         'var/log',
         'var/sessions',
