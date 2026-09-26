@@ -401,6 +401,7 @@ class Form implements FormInterface
             'row_attr' => (array) $this->getOption('row_attr', []),
             'help' => $this->getOption('help'),
             'help_attr' => (array) $this->getOption('help_attr', []),
+            'translation_domain' => $this->getOption('translation_domain') ?? $parent?->vars['translation_domain'] ?? null,
             'required' => $this->isRequired(),
             'disabled' => $this->isDisabled(),
             'errors' => array_map(static fn (FormError $error): string => $error->getMessage(), $this->errors),

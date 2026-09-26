@@ -37,7 +37,7 @@ class ExecutionContext
         }
 
         $this->violations->add(new Violation(
-            strtr($message, $replacements),
+            strtr($this->validator->translateMessage($message), $replacements),
             $message,
             $parameters,
             $path === null ? $this->path : static::join($this->path, $path),
