@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace NeoPHP\Package\Security;
 
 use NeoPHP\Component\Container\Contract\ContainerInterface;
-use NeoPHP\Package\Security\Authenticator\AuthenticationManager;
+use NeoPHP\Package\Security\Authentication\AuthenticationManager;
 use NeoPHP\Package\Security\Authorization\AccessDecisionManager;
 use NeoPHP\Package\Security\Authorization\AccessMap;
 use NeoPHP\Package\Security\Contract\AbstractSecurity;
