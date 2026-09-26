@@ -222,23 +222,23 @@ php bin/neo make:auth --twig
 
 ```yaml
 providers:
-  users:
-    entity:
-      class: App\Entity\User
-      property: email
+    users:
+        entity:
+            class: App\Entity\User
+            property: email
 
 firewalls:
-  main:
-    pattern: ^/
-    provider: users
-    form_login:
-      login_path: app_login
-      enable_csrf: true
-    logout:
-      path: app_logout
+    main:
+        pattern: ^/
+        provider: users
+        form_login:
+            login_path: app_login
+            enable_csrf: true
+        logout:
+            path: app_logout
 
 access_control:
-  - { path: ^/admin, roles: ROLE_ADMIN }
+    - { path: ^/admin, roles: ROLE_ADMIN }
 ```
 
 In controllers: `$this->getUser()`, `$this->denyAccessUnlessGranted('ROLE_ADMIN')`, `#[IsGranted('ROLE_ADMIN')]`. In templates: `app_user()`, `is_granted('ROLE_ADMIN')`, `logout_path()`. See the Security documentation.
@@ -285,13 +285,14 @@ Without Tailwind, the files of `assets/` are served with `asset()` as well. See 
 | Group | Features |
 |---|---|
 | components | Asset, Config, Container, Controller, Cookie, Csrf, Database, Event, Exception, Flash, Form, Http, Kernel, Logger, Mailer, Middleware, Routing, Service, Session, Validator, View |
-| packages | Debug, Dotenv, Orm, Security, Tailwind, Yaml |
+| packages | Debug, Dotenv, Markdown, Orm, Security, Tailwind, Yaml |
 | process | Console, Installer |
 
 The documentation of a feature is in `src/<group>/<Feature>/docs/v1.x/README.md`, for example `src/components/Routing/docs/v1.x/README.md`.
 
 ## Changelog
 
+- v1.19.0 — Markdown package (parser, document API, HTML to Markdown, `markdown` filter, `markdown:convert`)
 - v1.18.0 — Tailwind package (`tailwind:install`, `tailwind:run`)
 - Bugfix after v1.17.0 — absolute URLs (`url()`, `APP_URL`), `make:auth` base layout, `make:migration` description, misnamed view helpers reported in debug
 - v1.17.0 — interactive console, `make:entity` wizard
